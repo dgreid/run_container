@@ -1,0 +1,210 @@
+syntax = "proto2";
+
+package opencontainers;
+
+enum DeviceType {
+  CHAR = 0;
+  BLOCK = 1;
+}
+
+message OCIContainer {
+  required string name = 1;
+  required uint32 version = 2;
+
+  message Process {
+    required bool terminal = 1;
+    required string cwd = 2;
+    repeated string env = 3;
+    repeated string args = 4;
+
+    // Linux specific
+    repeated string capabilities = 5;
+
+    message rlimit {
+      required string type = 1;
+      required uint32 hard = 2;
+      required uint32 soft = 3;
+    }
+    repeated rlimit rlimits = 6;
+
+    optional string apparmor_profile = 7;
+    optional string selinux_label = 8;
+    optional bool no_new_privileges = 9;
+
+    message User {
+      optional uint64 uid = 1;
+      optional uint64 gid = 2;
+      repeated uint64 additional_gids = 3;
+    }
+    required User user = 10;
+  }
+  required Process process = 3;
+
+  optional string hostname = 4;
+
+  message RootFS {
+    required string path = 1;
+    optional bool read_only = 2;
+  }
+  required RootFS rootfs = 5;
+
+  message Platform {
+    required string os = 1;
+    required string arch = 2;
+  }
+  required Platform platform = 6;
+
+  message Mount {
+    required string destination = 1;
+    required string type = 2;
+    required string source = 3;
+    repeated string options = 4;
+  }
+  repeated Mount mounts = 7;
+
+  message Linux {
+    enum NamespaceType {
+      PID = 0;
+      NETWORK = 1;
+      MOUNT = 2;
+      IPC = 3;
+      UTS = 4;
+      USER = 5;
+      CGROUP = 6;
+    }
+    message Namespace {
+      required NamespaceType type = 1;
+      required string path = 2;
+    }
+    repeated Namespace namespaces = 1;
+
+    message IdMapping {
+      required uint64 host_id = 1;
+      required uint64 container_id = 2;
+      required uint64 size = 3;
+    }
+    repeated IdMapping uid_maps = 2;
+    repeated IdMapping gid_maps = 3;
+
+    message Device {
+      required string path = 1;
+
+      required DeviceType type = 2;
+
+      required uint32 major = 3;
+      required uint32 minor = 4;
+      required uint32 file_mode = 5;
+      optional uint64 uid = 6;
+      optional uint64 gid = 7;
+    }
+    repeated Device devices = 4;
+
+    optional string cgroups_path = 5;
+
+    message Resources {
+      message Device {
+        required bool allow = 1;
+        optional DeviceType type = 2;
+        optional uint64 major = 3;
+        optional uint64 minor = 4;
+        optional string access = 5;
+      }
+      repeated Device devices = 1;
+
+      optional bool disable_oom_killer = 2;
+      optional uint32 oom_score_adj = 3;
+
+      message Memory {
+        optional uint64 limit = 1;
+        optional uint64 reservation = 2;
+        optional uint64 swap = 3;
+        optional uint64 kernel = 4;
+        optional uint64 kernel_tcp = 5;
+        optional uint64 swappiness = 6;
+      }
+      optional Memory memory = 4;
+
+      message CPU {
+        optional uint64 shares = 1;
+        optional uint64 quota = 2;
+        optional uint64 period = 3;
+        optional uint64 realtime_runtime = 4;
+        optional uint64 realtime_period = 5;
+        repeated uint32 cpus = 6;
+        repeated uint32 mems = 7;
+      }
+      optional CPU cpu = 5;
+
+      message BlockIO {
+        optional uint32 blkio_weight = 1;
+        optional uint32 blkio_leaf_weight = 2;
+
+        message WeightDevice {
+          required uint64 major = 1;
+          required uint64 minor = 2;
+          optional uint32 blkio_weight = 3;
+          optional uint32 blkio_leaf_weight = 4;
+        }
+        repeated WeightDevice blkio_weight_device = 3;
+
+        message DeviceRate {
+          required uint64 major = 1;
+          required uint64 minor = 2;
+          required uint64 rate = 3;
+        }
+        repeated DeviceRate blkio_throttle_read_bps_device = 4;
+        repeated DeviceRate blkio_throttle_write_bps_device = 5;
+        repeated DeviceRate blkio_throttle_read_iops_device = 6;
+        repeated DeviceRate blkio_throttle_write_iops_device = 7;
+      }
+      optional BlockIO block_io = 6;
+
+      message HugepageLimits {
+        required uint64 page_size = 1;
+        required uint64 limit = 2;
+      }
+      repeated HugepageLimits huge_page_limits = 7;
+
+      message Network {
+        optional uint32 classID = 1;
+
+        message Priorities {
+          required string interface_name = 1;
+          required uint32 priority = 2;
+        }
+        repeated Priorities priorities = 2;
+      }
+      optional Network network = 8;
+
+      message Pids {
+        required uint64 limit = 1;
+      }
+      optional Pids pids = 9;
+    } // message Resources
+    optional Resources resources = 6;
+
+    message Sysctl {
+      required string control = 1;
+      required string setting = 2;
+    }
+    repeated Sysctl sysctls = 7;
+
+    // TODO: seccomp
+
+    enum MountPropagation {
+      SHARED = 0;
+      SLAVE = 1;
+      PRIVATE = 2;
+      UNBINDABLE = 3;
+    }
+    optional MountPropagation root_fs_mount_propagation = 8;
+
+    message PathList {
+      repeated string path = 1;
+    }
+    optional PathList masked_paths = 9;
+    optional PathList read_only_paths = 10;
+
+    optional string selinux_mount_label = 11;
+  } // message Linux
+}

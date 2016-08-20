@@ -1,0 +1,11 @@
+[package]
+name = "oci_parser"
+version = "0.1.0"
+authors = ["Dylan Reid <dgreid@chromium.org>"]
+build = "build.rs"
+
+[dependencies]
+protobuf = "*"
+serde = "*"
+serde_json = "*"
+serde_macros = "*"
