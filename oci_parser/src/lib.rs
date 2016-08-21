@@ -3,8 +3,6 @@
 
 mod oci_config;
 
-use oci_config::{ OciConfig };
-
 #[cfg(test)]
 mod tests {
     extern crate serde;
