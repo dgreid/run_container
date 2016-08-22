@@ -57,6 +57,169 @@ pub struct OciMount {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct OciHook {
+    path: String,
+    args: Option<Vec<String>>,
+    env: Option<Vec<String>>,
+    timeout: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciHooks {
+    prestart: Option<Vec<OciHook>>,
+    poststart: Option<Vec<OciHook>>,
+    poststop: Option<Vec<OciHook>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupDevice {
+    allow: bool,
+    access: Option<String>,
+    #[serde(rename="type")]
+    dev_type: Option<String>,
+    major: Option<u32>,
+    minor: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupMemory {
+    limit: Option<u64>,
+    reservation: Option<u64>,
+    swap: Option<u64>,
+    kernel: Option<u64>,
+    #[serde(rename="kernelTCP")]
+    kernel_tcp: Option<u64>,
+    swappiness: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupCpu {
+    shares: Option<u64>,
+    quota: Option<u64>,
+    period: Option<u64>,
+    #[serde(rename="realtimeRuntime")]
+    realtime_runtime: Option<u64>,
+    #[serde(rename="realtimePeriod")]
+    realtime_period: Option<u64>,
+    cpus: Option<String>,
+    mems: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupHugePageLimit {
+    #[serde(rename="pageSize")]
+    page_size: String,
+    limit: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupBlockIOWeightDevice {
+    major: u64,
+    minor: u64,
+    weight: Option<u16>,
+    #[serde(rename="leafWeight")]
+    leaf_weight: Option<u16>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupBlockIOBpsLimit {
+    major: u64,
+    minor: u64,
+    rate: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupBlockIO {
+    #[serde(rename="blkioWeight")]
+    blkio_weight: Option<u16>,
+    #[serde(rename="blkioLeafWeight")]
+    blkio_leaf_weight: Option<u16>,
+    #[serde(rename="blkioWeightDevice")]
+    blkio_weight_device: Option<Vec<OciLinuxCgroupBlockIOWeightDevice>>,
+    #[serde(rename="blkioThrottleReadBpsDevice")]
+    blkio_throttle_read_bps_device: Option<Vec<OciLinuxCgroupBlockIOBpsLimit>>,
+    #[serde(rename="blkioThrottleWriteBpsDevice")]
+    blkio_throttle_write_bps_device: Option<Vec<OciLinuxCgroupBlockIO>>,
+    #[serde(rename="blkioThrottleReadIOPSDevice")]
+    blkio_throttle_read_iops_device: Option<Vec<OciLinuxCgroupBlockIOBpsLimit>>,
+    #[serde(rename="blkioThrottleWriteIOPSDevice")]
+    blkio_throttle_write_iops_device: Option<Vec<OciLinuxCgroupBlockIO>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupNetworkPriority {
+    name: String,
+    priority: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupNetwork {
+    #[serde(rename="classID")]
+    class_id: Option<u32>,
+    priorities: Option<Vec<OciLinuxCgroupNetworkPriority>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxCgroupPids {
+    limit: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxResources {
+    devices: Option<Vec<OciLinuxCgroupDevice>>,
+    #[serde(rename="disableOOMKiller")]
+    disable_oom_killer: Option<bool>,
+    #[serde(rename="oomScoreAdj")]
+    oom_score_adj: Option<i32>,
+    memory: Option<OciLinuxCgroupMemory>,
+    cpu: Option<OciLinuxCgroupCpu>,
+    #[serde(rename="blockIO")]
+    block_io: Option<OciLinuxCgroupBlockIO>,
+    network: Option<OciLinuxCgroupNetwork>,
+    pids: Option<OciLinuxCgroupPids>,
+    #[serde(rename="hugePageLimits")]
+    huge_page_limits: Option<OciLinuxCgroupHugePageLimit>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxNamespace {
+    #[serde(rename="type")]
+    namespace_type: String,
+    path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinuxDevice {
+    #[serde(rename="type")]
+    dev_type: String,
+    path: String,
+    major: Option<u32>,
+    minor: Option<u32>,
+    #[serde(rename="fileMode")]
+    file_mode: Option<u32>,
+    uid: Option<u32>,
+    gid: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciLinux {
+    devices: Option<Vec<OciLinuxDevice>>,
+    #[serde(rename="cgroupsPath")]
+    cgroups_path: Option<String>,
+    resources: Option<OciLinuxResources>,
+    namespaces: Option<Vec<OciLinuxNamespace>>,
+    #[serde(rename="maskedPaths")]
+    masked_paths: Option<Vec<String>>,
+    #[serde(rename="readonlyPaths")]
+    read_only_paths: Option<Vec<String>>,
+    #[serde(rename="rootfsPropagation")]
+    rootfs_propagation: Option<String>,
+    #[serde(rename="mountLabel")]
+    mount_label: Option<String>,
+    // TODO seccomp, sysctl
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct OciConfig {
     #[serde(rename="ociVersion")]
     oci_version: String,
@@ -65,6 +228,8 @@ pub struct OciConfig {
     process: OciProcess,
     hostname: Option<String>,
     mounts: Option<Vec<OciMount>>,
+    hooks: Option<OciHooks>,
+    linux: Option<OciLinux>,
 }
 
 #[cfg(test)]
@@ -72,6 +237,7 @@ mod tests {
     extern crate serde;
     extern crate serde_json;
 
+    use super::OciLinuxDevice;
     use super::OciConfig;
 
     #[test]
@@ -191,7 +357,106 @@ mod tests {
                                 "ro"
                         ]
                     }
-                ]
+                ],
+                "hooks" : {
+                    "prestart": [
+                        {
+                            "path": "/usr/bin/fix-mounts",
+                            "args": ["fix-mounts", "arg1", "arg2"],
+                            "env":  [ "key1=value1"]
+                        },
+                        {
+                            "path": "/usr/bin/setup-network"
+                        }
+                    ],
+                    "poststart": [
+                        {
+                            "path": "/usr/bin/notify-start",
+                            "timeout": 5
+                        }
+                    ],
+                    "poststop": [
+                        {
+                            "path": "/usr/sbin/cleanup.sh",
+                            "args": ["cleanup.sh", "-f"]
+                        }
+                    ]
+                },
+                "linux": {
+                    "devices": [
+                        {
+                            "path": "/dev/fuse",
+                            "type": "c",
+                            "major": 10,
+                            "minor": 229,
+                            "fileMode": 438,
+                            "uid": 0,
+                            "gid": 0
+                        },
+                        {
+                            "path": "/dev/sda",
+                            "type": "b",
+                            "major": 8,
+                            "minor": 0,
+                            "fileMode": 432,
+                            "uid": 0,
+                            "gid": 0
+                        }
+                    ],
+                    "resources": {
+                        "devices": [
+                            {
+                                "allow": false,
+                                "access": "rwm"
+                            }
+                        ],
+                        "network": {
+                            "classID": 1048577,
+                            "priorities": [
+                                {
+                                    "name": "eth0",
+                                    "priority": 500
+                                },
+                                {
+                                    "name": "eth1",
+                                    "priority": 1000
+                                }
+                            ]
+                        }
+                    },
+                    "namespaces": [
+                        {
+                            "type": "pid"
+                        },
+                        {
+                            "type": "network"
+                        },
+                        {
+                            "type": "ipc"
+                        },
+                        {
+                            "type": "uts"
+                        },
+                        {
+                            "type": "mount"
+                        }
+                    ],
+                    "maskedPaths": [
+                        "/proc/kcore",
+                        "/proc/latency_stats",
+                        "/proc/timer_list",
+                        "/proc/timer_stats",
+                        "/proc/sched_debug"
+                    ],
+                    "readonlyPaths": [
+                        "/proc/asound",
+                        "/proc/bus",
+                        "/proc/fs",
+                        "/proc/irq",
+                        "/proc/sys",
+                        "/proc/sysrq-trigger"
+                    ]
+		}
             }
         "#;
 
@@ -221,5 +486,21 @@ mod tests {
                    "/dev".to_string());
         assert_eq!(basic_config.mounts.as_ref().unwrap().get(2).unwrap().options
                 .as_ref().unwrap().len(), 6);
+        assert_eq!(basic_config.hooks.as_ref().unwrap().prestart.as_ref().unwrap()
+                .get(1).unwrap().path, "/usr/bin/setup-network".to_string());
+        assert_eq!(basic_config.linux.as_ref().unwrap()
+                .resources.as_ref().unwrap()
+                .network.as_ref().unwrap().class_id, Some(1048577));
+        assert_eq!(basic_config.linux.as_ref().unwrap()
+                .masked_paths.as_ref().unwrap().len(), 5);
+        assert_eq!(basic_config.linux.as_ref().unwrap()
+                .read_only_paths.as_ref().unwrap().len(), 6);
+        // Devices
+        let dev: &OciLinuxDevice = basic_config.linux.as_ref().unwrap()
+                .devices.as_ref().unwrap().get(0).unwrap();
+        assert_eq!(dev.dev_type, "c");
+        assert_eq!(dev.path, "/dev/fuse");
+        assert_eq!(dev.file_mode, Some(438));
+        assert_eq!(dev.uid, Some(0));
     }
 }
