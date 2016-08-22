@@ -189,6 +189,15 @@ pub struct OciLinuxNamespace {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct OciLinuxNamespaceMapping {
+    #[serde(rename="hostID")]
+    host_id: u64,
+    #[serde(rename="containerID")]
+    container_id: u64,
+    size: u64,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct OciLinuxDevice {
     #[serde(rename="type")]
     dev_type: String,
@@ -208,6 +217,10 @@ pub struct OciLinux {
     cgroups_path: Option<String>,
     resources: Option<OciLinuxResources>,
     namespaces: Option<Vec<OciLinuxNamespace>>,
+    #[serde(rename="uidMappings")]
+    uid_mappings: Option<Vec<OciLinuxNamespaceMapping>>,
+    #[serde(rename="gidMappings")]
+    gid_mappings: Option<Vec<OciLinuxNamespaceMapping>>,
     #[serde(rename="maskedPaths")]
     masked_paths: Option<Vec<String>>,
     #[serde(rename="readonlyPaths")]
@@ -238,6 +251,7 @@ mod tests {
     extern crate serde_json;
 
     use super::OciLinuxDevice;
+    use super::OciLinuxNamespaceMapping;
     use super::OciConfig;
 
     #[test]
@@ -441,6 +455,20 @@ mod tests {
                             "type": "mount"
                         }
                     ],
+                    "uidMappings": [
+                        {
+                            "hostID": 1000,
+                            "containerID": 0,
+                            "size": 10
+                        }
+                    ],
+                    "gidMappings": [
+                        {
+                            "hostID": 1000,
+                            "containerID": 0,
+                            "size": 10
+                        }
+                    ],
                     "maskedPaths": [
                         "/proc/kcore",
                         "/proc/latency_stats",
@@ -502,5 +530,11 @@ mod tests {
         assert_eq!(dev.path, "/dev/fuse");
         assert_eq!(dev.file_mode, Some(438));
         assert_eq!(dev.uid, Some(0));
+        // Namespace Maps
+        let id_map: &OciLinuxNamespaceMapping = basic_config.linux.as_ref().unwrap()
+                .uid_mappings.as_ref().unwrap().get(0).unwrap();
+        assert_eq!(id_map.host_id, 1000);
+        assert_eq!(id_map.container_id, 0);
+        assert_eq!(id_map.size, 10);
     }
 }
