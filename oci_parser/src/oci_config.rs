@@ -243,6 +243,7 @@ pub struct OciConfig {
     mounts: Option<Vec<OciMount>>,
     hooks: Option<OciHooks>,
     linux: Option<OciLinux>,
+    // TODO - Annotations
 }
 
 #[cfg(test)]
