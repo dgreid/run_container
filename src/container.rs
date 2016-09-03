@@ -2,6 +2,8 @@ extern crate nix;
 
 use self::nix::sys::ioctl::libc::pid_t;
 use self::nix::sched::*;
+use self::nix::sys::wait;
+use self::nix::sys::wait::WaitStatus;
 
 pub struct Container {
     name: String,
@@ -17,16 +19,30 @@ impl Container {
         &self.name
     }
 
-    pub fn start(&mut self) -> Result<(), String> {
+    fn child_proc() -> isize {
+        0
+    }
+
+    pub fn start(&mut self) -> Result<(), String> { // TODO(dgreid) - use real error code
         let mut stack = [0; 0x1000];
-        clone(Box::new(child_proc), &mut stack,
-               CloneFlags::empty(), None).map(|pid| self.pid = pid).unwrap();
+        clone(Box::new(Container::child_proc), &mut stack,
+               CLONE_NEWUSER, None).map(|pid| self.pid = pid).unwrap();
         Ok(())
     }
-}
 
-fn child_proc() -> isize {
-    0
+    pub fn wait(&mut self) -> Result<(), String> { // TODO(dgreid) - use real error code
+        loop {
+            match wait::waitpid(self.pid, Some(wait::__WALL)) {
+                Ok(WaitStatus::Exited(..)) => { self.pid = -1; return Ok(()); },
+                Ok(WaitStatus::Signaled(..)) => { self.pid = -1; return Ok(()); },
+                Ok(WaitStatus::Stopped(..)) => (), // Child being traced?  Try again.
+                Ok(WaitStatus::Continued(..)) => (),
+                Ok(WaitStatus::StillAlive) => (),
+                Err(nix::Error::Sys(nix::Errno::EINTR)) => (), // Try again.
+                Err(_) => return Err("Error from waitpid".to_string()),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -37,5 +53,6 @@ mod test {
     fn start_test() {
         let mut c = Container::new("asdf");
         assert_eq!(c.start(), Ok(()));
+        assert_eq!(c.wait(), Ok(()));
     }
 }
