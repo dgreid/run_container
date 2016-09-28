@@ -5,3 +5,4 @@ authors = ["Dylan Reid <dgreid@chromium.org>"]
 
 [dependencies]
 nix = "0.6.0"
+tempdir = "*"
