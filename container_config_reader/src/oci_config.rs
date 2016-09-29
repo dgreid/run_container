@@ -3,246 +3,246 @@ extern crate serde_json;
 
 #[derive(Serialize, Deserialize)]
 pub struct OciPlatform {
-    os: String,
-    arch: String,
+    pub os: String,
+    pub arch: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciProcessUser {
-    uid: u32,
-    gid: u32,
+    pub uid: u32,
+    pub gid: u32,
     #[serde(rename="additionalGids")]
-    additional_gids: Option<Vec<u32>>,
+    pub additional_gids: Option<Vec<u32>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciRlimit {
     #[serde(rename="type")]
-    limit_type: String,
-    hard: u32,
-    soft: u32,
+    pub limit_type: String,
+    pub hard: u32,
+    pub soft: u32,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciProcess {
-    terminal: Option<bool>,
-    user: OciProcessUser,
-    args: Vec<String>,
-    env: Option<Vec<String>>,
-    cwd: String,
-    capabilities: Option<Vec<String>>,
-    rlimits: Option<Vec<OciRlimit>>,
+    pub terminal: Option<bool>,
+    pub user: OciProcessUser,
+    pub args: Vec<String>,
+    pub env: Option<Vec<String>>,
+    pub cwd: String,
+    pub capabilities: Option<Vec<String>>,
+    pub rlimits: Option<Vec<OciRlimit>>,
     #[serde(rename="apparmorProfile")]
-    apparmor_profile: Option<bool>,
+    pub apparmor_profile: Option<bool>,
     #[serde(rename="selinuxLabel")]
-    selinux_label: Option<bool>,
+    pub selinux_label: Option<bool>,
     #[serde(rename="noNewPrivileges")]
-    no_new_privileges: Option<bool>,
+    pub no_new_privileges: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciRoot {
-    path: String,
+    pub path: String,
     #[serde(rename="readonly")]
-    read_only: Option<bool>,
+    pub read_only: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciMount {
-    destination: String,
+    pub destination: String,
     #[serde(rename="type")]
-    mount_type: String,
-    source: String,
-    options: Option<Vec<String>>,
+    pub mount_type: String,
+    pub source: String,
+    pub options: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciHook {
-    path: String,
-    args: Option<Vec<String>>,
-    env: Option<Vec<String>>,
-    timeout: Option<u32>,
+    pub path: String,
+    pub args: Option<Vec<String>>,
+    pub env: Option<Vec<String>>,
+    pub timeout: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciHooks {
-    prestart: Option<Vec<OciHook>>,
-    poststart: Option<Vec<OciHook>>,
-    poststop: Option<Vec<OciHook>>,
+    pub prestart: Option<Vec<OciHook>>,
+    pub poststart: Option<Vec<OciHook>>,
+    pub poststop: Option<Vec<OciHook>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupDevice {
-    allow: bool,
-    access: Option<String>,
+    pub allow: bool,
+    pub access: Option<String>,
     #[serde(rename="type")]
-    dev_type: Option<String>,
-    major: Option<u32>,
-    minor: Option<u32>,
+    pub dev_type: Option<String>,
+    pub major: Option<u32>,
+    pub minor: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupMemory {
-    limit: Option<u64>,
-    reservation: Option<u64>,
-    swap: Option<u64>,
-    kernel: Option<u64>,
+    pub limit: Option<u64>,
+    pub reservation: Option<u64>,
+    pub swap: Option<u64>,
+    pub kernel: Option<u64>,
     #[serde(rename="kernelTCP")]
-    kernel_tcp: Option<u64>,
-    swappiness: Option<u64>,
+    pub kernel_tcp: Option<u64>,
+    pub swappiness: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupCpu {
-    shares: Option<u64>,
-    quota: Option<u64>,
-    period: Option<u64>,
+    pub shares: Option<u64>,
+    pub quota: Option<u64>,
+    pub period: Option<u64>,
     #[serde(rename="realtimeRuntime")]
-    realtime_runtime: Option<u64>,
+    pub realtime_runtime: Option<u64>,
     #[serde(rename="realtimePeriod")]
-    realtime_period: Option<u64>,
-    cpus: Option<String>,
-    mems: Option<String>,
+    pub realtime_period: Option<u64>,
+    pub cpus: Option<String>,
+    pub mems: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupHugePageLimit {
     #[serde(rename="pageSize")]
-    page_size: String,
-    limit: Option<u64>,
+    pub page_size: String,
+    pub limit: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupBlockIOWeightDevice {
-    major: u64,
-    minor: u64,
-    weight: Option<u16>,
+    pub major: u64,
+    pub minor: u64,
+    pub weight: Option<u16>,
     #[serde(rename="leafWeight")]
-    leaf_weight: Option<u16>,
+    pub leaf_weight: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupBlockIOBpsLimit {
-    major: u64,
-    minor: u64,
-    rate: u64,
+    pub major: u64,
+    pub minor: u64,
+    pub rate: u64,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupBlockIO {
     #[serde(rename="blkioWeight")]
-    blkio_weight: Option<u16>,
+    pub blkio_weight: Option<u16>,
     #[serde(rename="blkioLeafWeight")]
-    blkio_leaf_weight: Option<u16>,
+    pub blkio_leaf_weight: Option<u16>,
     #[serde(rename="blkioWeightDevice")]
-    blkio_weight_device: Option<Vec<OciLinuxCgroupBlockIOWeightDevice>>,
+    pub blkio_weight_device: Option<Vec<OciLinuxCgroupBlockIOWeightDevice>>,
     #[serde(rename="blkioThrottleReadBpsDevice")]
-    blkio_throttle_read_bps_device: Option<Vec<OciLinuxCgroupBlockIOBpsLimit>>,
+    pub blkio_throttle_read_bps_device: Option<Vec<OciLinuxCgroupBlockIOBpsLimit>>,
     #[serde(rename="blkioThrottleWriteBpsDevice")]
-    blkio_throttle_write_bps_device: Option<Vec<OciLinuxCgroupBlockIO>>,
+    pub blkio_throttle_write_bps_device: Option<Vec<OciLinuxCgroupBlockIO>>,
     #[serde(rename="blkioThrottleReadIOPSDevice")]
-    blkio_throttle_read_iops_device: Option<Vec<OciLinuxCgroupBlockIOBpsLimit>>,
+    pub blkio_throttle_read_iops_device: Option<Vec<OciLinuxCgroupBlockIOBpsLimit>>,
     #[serde(rename="blkioThrottleWriteIOPSDevice")]
-    blkio_throttle_write_iops_device: Option<Vec<OciLinuxCgroupBlockIO>>,
+    pub blkio_throttle_write_iops_device: Option<Vec<OciLinuxCgroupBlockIO>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupNetworkPriority {
-    name: String,
-    priority: u32,
+    pub name: String,
+    pub priority: u32,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupNetwork {
     #[serde(rename="classID")]
-    class_id: Option<u32>,
-    priorities: Option<Vec<OciLinuxCgroupNetworkPriority>>,
+    pub class_id: Option<u32>,
+    pub priorities: Option<Vec<OciLinuxCgroupNetworkPriority>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxCgroupPids {
-    limit: i64,
+    pub limit: i64,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxResources {
-    devices: Option<Vec<OciLinuxCgroupDevice>>,
+    pub devices: Option<Vec<OciLinuxCgroupDevice>>,
     #[serde(rename="disableOOMKiller")]
-    disable_oom_killer: Option<bool>,
+    pub disable_oom_killer: Option<bool>,
     #[serde(rename="oomScoreAdj")]
-    oom_score_adj: Option<i32>,
-    memory: Option<OciLinuxCgroupMemory>,
-    cpu: Option<OciLinuxCgroupCpu>,
+    pub oom_score_adj: Option<i32>,
+    pub memory: Option<OciLinuxCgroupMemory>,
+    pub cpu: Option<OciLinuxCgroupCpu>,
     #[serde(rename="blockIO")]
-    block_io: Option<OciLinuxCgroupBlockIO>,
-    network: Option<OciLinuxCgroupNetwork>,
-    pids: Option<OciLinuxCgroupPids>,
+    pub block_io: Option<OciLinuxCgroupBlockIO>,
+    pub network: Option<OciLinuxCgroupNetwork>,
+    pub pids: Option<OciLinuxCgroupPids>,
     #[serde(rename="hugePageLimits")]
-    huge_page_limits: Option<OciLinuxCgroupHugePageLimit>,
+    pub huge_page_limits: Option<OciLinuxCgroupHugePageLimit>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxNamespace {
     #[serde(rename="type")]
-    namespace_type: String,
-    path: Option<String>,
+    pub namespace_type: String,
+    pub path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxNamespaceMapping {
     #[serde(rename="hostID")]
-    host_id: u64,
+    pub host_id: u64,
     #[serde(rename="containerID")]
-    container_id: u64,
-    size: u64,
+    pub container_id: u64,
+    pub size: u64,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinuxDevice {
     #[serde(rename="type")]
-    dev_type: String,
-    path: String,
-    major: Option<u32>,
-    minor: Option<u32>,
+    pub dev_type: String,
+    pub path: String,
+    pub major: Option<u32>,
+    pub minor: Option<u32>,
     #[serde(rename="fileMode")]
-    file_mode: Option<u32>,
-    uid: Option<u32>,
-    gid: Option<u32>,
+    pub file_mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciLinux {
-    devices: Option<Vec<OciLinuxDevice>>,
+    pub devices: Option<Vec<OciLinuxDevice>>,
     #[serde(rename="cgroupsPath")]
-    cgroups_path: Option<String>,
-    resources: Option<OciLinuxResources>,
-    namespaces: Option<Vec<OciLinuxNamespace>>,
+    pub cgroups_path: Option<String>,
+    pub resources: Option<OciLinuxResources>,
+    pub namespaces: Option<Vec<OciLinuxNamespace>>,
     #[serde(rename="uidMappings")]
-    uid_mappings: Option<Vec<OciLinuxNamespaceMapping>>,
+    pub uid_mappings: Option<Vec<OciLinuxNamespaceMapping>>,
     #[serde(rename="gidMappings")]
-    gid_mappings: Option<Vec<OciLinuxNamespaceMapping>>,
+    pub gid_mappings: Option<Vec<OciLinuxNamespaceMapping>>,
     #[serde(rename="maskedPaths")]
-    masked_paths: Option<Vec<String>>,
+    pub masked_paths: Option<Vec<String>>,
     #[serde(rename="readonlyPaths")]
-    read_only_paths: Option<Vec<String>>,
+    pub read_only_paths: Option<Vec<String>>,
     #[serde(rename="rootfsPropagation")]
-    rootfs_propagation: Option<String>,
+    pub rootfs_propagation: Option<String>,
     #[serde(rename="mountLabel")]
-    mount_label: Option<String>,
+    pub mount_label: Option<String>,
     // TODO seccomp, sysctl
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct OciConfig {
     #[serde(rename="ociVersion")]
-    oci_version: String,
-    platform: OciPlatform,
-    root: OciRoot,
-    process: OciProcess,
-    hostname: Option<String>,
-    mounts: Option<Vec<OciMount>>,
-    hooks: Option<OciHooks>,
-    linux: Option<OciLinux>,
+    pub oci_version: String,
+    pub platform: OciPlatform,
+    pub root: OciRoot,
+    pub process: OciProcess,
+    pub hostname: Option<String>,
+    pub mounts: Option<Vec<OciMount>>,
+    pub hooks: Option<OciHooks>,
+    pub linux: Option<OciLinux>,
     // TODO - Annotations
 }
 
