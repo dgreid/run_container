@@ -78,7 +78,7 @@ impl<'a> Container<'a> {
             // TODO(dgreid) - hard coded x86_64 syscall value for clone
 	    let clone_flags  = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC;
 	    let pid = nix::sys::syscall::syscall(
-                    56, clone_flags.bits() | nix::sys::signal::SIGCHLD, 0);
+                    56, clone_flags.bits() | nix::sys::signal::SIGCHLD as i32, 0);
 	    if pid < 0 {
                 Err(nix::Error::Sys(nix::Errno::UnknownErrno))
             } else {

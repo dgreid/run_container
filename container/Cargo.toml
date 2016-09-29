@@ -4,5 +4,5 @@ version = "0.1.0"
 authors = ["Dylan Reid <dgreid@chromium.org>"]
 
 [dependencies]
-nix = "0.6.0"
+nix = "*"
 tempdir = "*"
