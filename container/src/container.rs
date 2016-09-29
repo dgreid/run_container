@@ -140,12 +140,14 @@ impl<'a> Container<'a> {
 
 #[cfg(test)]
 mod test {
+    extern crate nix;
+
     use super::Container;
     use mount_namespace::*;
     use std::path::Path;
     use std::ffi::CString;
     use user_namespace::*;
-    use nix::unistd::getuid;
+    use self::nix::unistd::getuid;
 
     #[test]
     fn start_test() {
@@ -154,6 +156,7 @@ mod test {
         let mut user_namespace = UserNamespace::new();
         user_namespace.add_uid_mapping(0, getuid() as usize, 1);
         let mut c = Container::new("asdf", argv, &mount_namespace, &user_namespace);
+	assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());
         assert!(c.wait().is_ok());
     }

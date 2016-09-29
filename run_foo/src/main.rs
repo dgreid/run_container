@@ -1,13 +1,9 @@
 extern crate nix;
+extern crate container;
 
-mod container;
-mod mount_namespace;
-mod sync_pipe;
-mod user_namespace;
-
-use container::Container;
-use mount_namespace::*;
-use user_namespace::UserNamespace;
+use container::container::Container;
+use container::mount_namespace::*;
+use container::user_namespace::UserNamespace;
 
 use self::nix::mount::*;
 use self::nix::unistd::{getuid, getgid};
