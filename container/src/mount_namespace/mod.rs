@@ -28,28 +28,28 @@ impl From<nix::Error> for MountError {
     }
 }
 
-struct ContainerMount<'a> {
-    source: Option<&'a Path>,
-    target: &'a Path,
-    fstype: Option<&'a str>,
+struct ContainerMount {
+    source: Option<PathBuf>,
+    target: PathBuf,
+    fstype: Option<String>,
     flags: MsFlags,
-    options: &'a Vec<&'a str>,
+    options: Vec<String>,
 }
 
-pub struct MountNamespace<'a> {
-    root: &'a Path,
-    mounts: Vec<ContainerMount<'a>>,
+pub struct MountNamespace {
+    root: PathBuf,
+    mounts: Vec<ContainerMount>,
 }
 
-impl<'a> MountNamespace<'a> {
-    pub fn new(root: &'a Path) -> Self {
+impl MountNamespace {
+    pub fn new(root: PathBuf) -> Self {
         MountNamespace { root: root, mounts: Vec::new(), }
     }
 
     // target path must be relative, no leading '/'.
-    pub fn add_mount(&mut self, source: Option<&'a Path>, target: &'a Path,
-                    fstype: Option<&'a str>, flags: MsFlags,
-                    options: &'a Vec<&'a str>) -> Result<(), MountError> {
+    pub fn add_mount(&mut self, source: Option<PathBuf>, target: PathBuf,
+                    fstype: Option<String>, flags: MsFlags,
+                    options: Vec<String>) -> Result<(), MountError> {
         if target.is_absolute() {
             return Err(MountError::InvalidTargetPath);
         }
@@ -74,13 +74,13 @@ impl<'a> MountNamespace<'a> {
         try!(self.remount_private());
 
         for m in self.mounts.iter() {
-            let mut target = PathBuf::from(self.root);
-            target.push(m.target);
+            let mut target = self.root.clone();
+            target.push(m.target.as_path());
             if !target.exists() {
                 try!(fs::create_dir(target.as_path()));
             }
-            try!(nix::mount::mount(m.source, target.as_path(), m.fstype,
-                                   m.flags,
+            try!(nix::mount::mount(m.source.as_ref(), target.as_path(),
+                                   m.fstype.as_ref().map(|t| &**t), m.flags,
                                    Some(&m.options.join(",")[..])));
         }
 
@@ -93,13 +93,14 @@ impl<'a> MountNamespace<'a> {
     fn enter_pivot_root(&self) -> nix::Result<()> {
         // Keep both old and new root open to fchdir into later.
         let old_root = try!(OpenDir::new(Path::new("/")));
-        let new_root = try!(OpenDir::new(self.root));
+        let new_root = try!(OpenDir::new(self.root.as_path()));
 
 	// To ensure j->chrootdir is the root of a filesystem,
 	// do a self bind mount.
-        try!(nix::mount::mount(Some(self.root), self.root, None::<&Path>,
-                   MS_BIND | MS_REC, None::<&Path>));
-        try!(nix::unistd::chdir(self.root));
+        try!(nix::mount::mount(Some(self.root.as_path()), self.root.as_path(),
+                               None::<&Path>, MS_BIND | MS_REC,
+                               None::<&Path>));
+        try!(nix::unistd::chdir(self.root.as_path()));
         try!(nix::unistd::pivot_root(".", "."));
 
         // unmount old root
@@ -161,16 +162,16 @@ mod test {
     #[test]
     fn invalid_target() {
         let root_dir = TempDir::new("two_mount_test").unwrap();
-        let root_path = root_dir.path();
+        let root_path = root_dir.into_path();
 	let tmp_dir = TempDir::new("/tmp/one").unwrap();
-	let source = tmp_dir.path();
+	let source = tmp_dir.into_path();
 
         let target = PathBuf::from("/one"); // Invalid absolute path
         let fstype = None;
         let options = Vec::new();
 
         let mut m = MountNamespace::new(root_path);
-        assert_eq!(m.add_mount(Some(&source), &target, fstype, MS_BIND, &options).is_ok(), false);
+        assert_eq!(m.add_mount(Some(source), target, fstype, MS_BIND, options).is_ok(), false);
     }
 
     #[test]
@@ -192,12 +193,12 @@ mod test {
                 let options = Vec::new();
 
                 let target2 = PathBuf::from("two");
-                let fstype2 = Some("tmpfs");
+                let fstype2 = Some("tmpfs".to_string());
                 let options2 = Vec::new();
 
-                let mut m = MountNamespace::new(root_path);
-                m.add_mount(Some(&source), &target, fstype, MS_BIND, &options).unwrap();
-                m.add_mount(None, &target2, fstype2, MS_REC, &options2).unwrap();
+                let mut m = MountNamespace::new(root_path.to_path_buf());
+                m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options).unwrap();
+                m.add_mount(None, target2, fstype2, MS_REC, options2).unwrap();
                 assert_eq!(m.enter().is_ok(), true);
                 assert!(PathBuf::from("/one").exists());
                 assert!(PathBuf::from("/two").exists());
@@ -217,11 +218,11 @@ mod test {
 
                 let source = PathBuf::from("tmpfssrc");
                 let target = PathBuf::from("tmpfs");
-                let fstype = Some("tmpfs");
-                let options = vec![ "size=16k" ];
+                let fstype = Some("tmpfs".to_string());
+                let options = vec![ "size=16k".to_owned() ];
 
-                let mut m = MountNamespace::new(root_path);
-                m.add_mount(Some(&source), &target, fstype, MS_REC, &options).unwrap();
+                let mut m = MountNamespace::new(root_path.to_path_buf());
+                m.add_mount(Some(source), target, fstype, MS_REC, options).unwrap();
                 assert_eq!(m.enter().is_ok(), true);
                 assert!(PathBuf::from("/tmpfs").exists());
                 0

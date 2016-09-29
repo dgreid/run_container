@@ -13,11 +13,11 @@ use std::fs;
 use std::io;
 use std::io::Write;
 
-pub struct Container<'a> {
+pub struct Container {
     name: String,
     argv: Vec<CString>,
-    mount_namespace: &'a MountNamespace<'a>,
-    user_namespace: &'a UserNamespace,
+    mount_namespace: MountNamespace,
+    user_namespace: UserNamespace,
     pid: pid_t,
 }
 
@@ -51,10 +51,10 @@ impl From<MountError> for ContainerError {
     }
 }
 
-impl<'a> Container<'a> {
+impl Container {
     pub fn new(name: &str, argv: Vec<CString>,
-               mount_namespace: &'a MountNamespace,
-               user_namespace: &'a UserNamespace) -> Self {
+               mount_namespace: MountNamespace,
+               user_namespace: UserNamespace) -> Self {
         Container {
             name: name.to_string(),
             argv: argv,
@@ -144,7 +144,7 @@ mod test {
 
     use super::Container;
     use mount_namespace::*;
-    use std::path::Path;
+    use std::path::PathBuf;
     use std::ffi::CString;
     use user_namespace::*;
     use self::nix::unistd::getuid;
@@ -152,10 +152,10 @@ mod test {
     #[test]
     fn start_test() {
         let argv = vec![ CString::new("/bin/ls").unwrap(), CString::new("-l").unwrap() ];
-        let mount_namespace = MountNamespace::new(Path::new("/tmp/foo"));
+        let mount_namespace = MountNamespace::new(PathBuf::from("/tmp/foo"));
         let mut user_namespace = UserNamespace::new();
         user_namespace.add_uid_mapping(0, getuid() as usize, 1);
-        let mut c = Container::new("asdf", argv, &mount_namespace, &user_namespace);
+        let mut c = Container::new("asdf", argv, mount_namespace, user_namespace);
 	assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());
         assert!(c.wait().is_ok());
