@@ -76,7 +76,7 @@ impl Container {
     fn do_clone() -> Result<pid_t, nix::Error> {
         unsafe {
             // TODO(dgreid) - hard coded x86_64 syscall value for clone
-	    let clone_flags  = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC;
+	    let clone_flags  = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS;
 	    let pid = nix::sys::syscall::syscall(
                     56, clone_flags.bits() | nix::sys::signal::SIGCHLD as i32, 0);
 	    if pid < 0 {
