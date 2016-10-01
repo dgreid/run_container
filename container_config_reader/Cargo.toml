@@ -2,7 +2,6 @@
 name = "container_config_reader"
 version = "0.1.0"
 authors = ["Dylan Reid <dgreid@chromium.org>"]
-build = "build.rs"
 
 [dependencies]
 container = { path = "../container" }
