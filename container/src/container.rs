@@ -1,6 +1,8 @@
 extern crate nix;
 
 use mount_namespace::*;
+use net_namespace;
+use net_namespace::NetNamespace;
 use sync_pipe::*;
 use user_namespace::UserNamespace;
 
@@ -18,6 +20,7 @@ pub struct Container {
     argv: Vec<CString>,
     mount_namespace: MountNamespace,
     user_namespace: UserNamespace,
+    net_namespace: Box<NetNamespace>,
     pid: pid_t,
 }
 
@@ -27,6 +30,7 @@ pub enum ContainerError {
     Nix(nix::Error),
     WaitPidFailed,
     InvalidMountTarget,
+    NetworkNamespaceConfigError,
 }
 
 impl From<nix::Error> for ContainerError {
@@ -51,17 +55,34 @@ impl From<MountError> for ContainerError {
     }
 }
 
+impl From<net_namespace::Error> for ContainerError {
+    fn from(err: net_namespace::Error) -> ContainerError {
+        match err {
+            net_namespace::Error::NetNamespaceDeviceSetupFailed =>
+                    ContainerError::NetworkNamespaceConfigError,
+            net_namespace::Error::Io(_) =>
+                    ContainerError::NetworkNamespaceConfigError,
+        }
+    }
+}
+
 impl Container {
     pub fn new(name: &str, argv: Vec<CString>,
                mount_namespace: MountNamespace,
+	       net_namespace: Box<NetNamespace>,
                user_namespace: UserNamespace) -> Self {
         Container {
             name: name.to_string(),
             argv: argv,
             mount_namespace: mount_namespace,
+            net_namespace: net_namespace,
             user_namespace: user_namespace,
             pid: 0,
         }
+    }
+
+    pub fn set_net_namespace(&mut self, net_namespace: Box<NetNamespace>) {
+      self.net_namespace = net_namespace;
     }
 
     pub fn name(&self) -> &str {
@@ -76,7 +97,8 @@ impl Container {
     fn do_clone() -> Result<pid_t, nix::Error> {
         unsafe {
             // TODO(dgreid) - hard coded x86_64 syscall value for clone
-	    let clone_flags  = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS;
+	    let clone_flags  = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC
+                               | CLONE_NEWUTS | CLONE_NEWNET;
 	    let pid = nix::sys::syscall::syscall(
                     56, clone_flags.bits() | nix::sys::signal::SIGCHLD as i32, 0);
 	    if pid < 0 {
@@ -94,6 +116,8 @@ impl Container {
         try!(gid_file.write_all(self.user_namespace.gid_config_string().as_bytes()));
         drop(uid_file);
         drop(gid_file); // ick, but dropping the file causes a flush.
+
+        try!(self.net_namespace.configure_for_pid(self.pid));
 
         try!(sync_pipe.signal());
         Ok(())
@@ -155,7 +179,8 @@ mod test {
         let mount_namespace = MountNamespace::new(PathBuf::from("/tmp/foo"));
         let mut user_namespace = UserNamespace::new();
         user_namespace.add_uid_mapping(0, getuid() as usize, 1);
-        let mut c = Container::new("asdf", argv, mount_namespace, user_namespace);
+	// TODO(dgreid) - add test with each network namespace
+        let mut c = Container::new("asdf", argv, mount_namespace, None, user_namespace);
 	assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());
         assert!(c.wait().is_ok());

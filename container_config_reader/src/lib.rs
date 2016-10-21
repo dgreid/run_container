@@ -10,6 +10,7 @@ mod oci_config;
 
 use container::container::Container;
 use container::mount_namespace::*;
+use container::net_namespace::EmptyNetNamespace;
 use container::user_namespace::UserNamespace;
 
 use self::nix::mount::*;
@@ -115,8 +116,12 @@ fn container_from_oci(config: OciConfig, path: &Path) ->
     let argv = config.process.args.into_iter()
                     .map(|a| CString::new(a.as_str()).unwrap())
                     .collect();
+
+    //TODO(dgreid) - Parse net namespace config.
+    let net_ns = Box::new(EmptyNetNamespace::new());
+
     Ok(Container::new(config.hostname.unwrap_or("??".to_string()).as_str(),
-                      argv, mnt_ns, user_ns))
+                      argv, mnt_ns, net_ns, user_ns))
 }
 
 #[cfg(test)]
