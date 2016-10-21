@@ -96,8 +96,8 @@ fn container_from_oci(config: OciConfig, path: &Path) ->
     if let Some(linux) = config.linux {
         if let Some(uid_mappings) = linux.uid_mappings {
             for id_map in uid_mappings {
-                user_ns.add_uid_mapping(id_map.host_id as usize,
-                                        id_map.container_id as usize,
+                user_ns.add_uid_mapping(id_map.container_id as usize,
+                                        id_map.host_id as usize,
                                         id_map.size as usize);
             }
         } else {
@@ -107,8 +107,8 @@ fn container_from_oci(config: OciConfig, path: &Path) ->
         }
         if let Some(gid_mappings) = linux.gid_mappings {
             for id_map in gid_mappings {
-                user_ns.add_gid_mapping(id_map.host_id as usize,
-                                        id_map.container_id as usize,
+                user_ns.add_gid_mapping(id_map.container_id as usize,
+                                        id_map.host_id as usize,
                                         id_map.size as usize);
             }
         }
