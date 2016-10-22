@@ -90,6 +90,8 @@ impl Container {
     }
 
     fn enter_jail(&self) -> Result<(), ContainerError> {
+        try!(nix::unistd::setresuid(0, 0, 0));
+        try!(nix::unistd::setresgid(0, 0, 0));
         try!(self.mount_namespace.enter());
         Ok(())
     }
