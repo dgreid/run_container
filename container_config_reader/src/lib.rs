@@ -92,6 +92,8 @@ fn container_from_oci(config: OciConfig, path: &Path) ->
                                   Some(m.mount_type), flags, options));
         }
     }
+    try!(mnt_ns.add_mount(None, PathBuf::from("sys"), Some("sysfs".to_string()), MsFlags::empty(),
+                          Vec::new()));
     let mut user_ns = UserNamespace::new();
     if let Some(linux) = config.linux {
         if let Some(uid_mappings) = linux.uid_mappings {
