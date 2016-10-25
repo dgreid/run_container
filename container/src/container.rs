@@ -168,6 +168,7 @@ mod test {
 
     use super::Container;
     use mount_namespace::*;
+    use net_namespace::EmptyNetNamespace;
     use std::path::PathBuf;
     use std::ffi::CString;
     use user_namespace::*;
@@ -180,7 +181,8 @@ mod test {
         let mut user_namespace = UserNamespace::new();
         user_namespace.add_uid_mapping(0, getuid() as usize, 1);
 	// TODO(dgreid) - add test with each network namespace
-        let mut c = Container::new("asdf", argv, mount_namespace, None, user_namespace);
+        let mut c = Container::new("asdf", argv, mount_namespace,
+                                   Box::new(EmptyNetNamespace::new()), user_namespace);
 	assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());
         assert!(c.wait().is_ok());
