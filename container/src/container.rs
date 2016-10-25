@@ -85,6 +85,10 @@ impl Container {
       self.net_namespace = net_namespace;
     }
 
+    pub fn set_user_namespace(&mut self, user_namespace: UserNamespace) {
+      self.user_namespace = user_namespace;
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
