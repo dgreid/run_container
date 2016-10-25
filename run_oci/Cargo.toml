@@ -6,6 +6,7 @@ authors = ["Dylan Reid <dgreid@chromium.org>"]
 [dependencies]
 container = { path = "../container" }
 container_config_reader = { path = "../container_config_reader" }
+getopts = "*"
 nix = "*"
 serde = "*"
 serde_json = "*"
