@@ -30,7 +30,7 @@ pub trait NetNamespace {
 
 pub struct NatNetNamespace {
     upstream_ifaces: Vec<String>,
-    ip_addr: String,
+    ip_addr: String, // ip address of the host-side interface for NAT
 }
 
 impl NatNetNamespace {
@@ -88,13 +88,16 @@ pub struct BridgedNetNamespace {
     bridge_name: String,
     upstream_iface: String,
     default_route_ip: String,
+    namespace_ip: String,
 }
 
 impl BridgedNetNamespace {
-    pub fn new(bridge_name: String, upstream_iface: String, default_route_ip: String) -> Self {
+    pub fn new(bridge_name: String, upstream_iface: String, default_route_ip: String,
+               namespace_ip: String) -> Self {
         BridgedNetNamespace { bridge_name: bridge_name,
                               upstream_iface: upstream_iface,
                               default_route_ip: default_route_ip,
+                              namespace_ip: namespace_ip,
                             }
     }
 
@@ -107,9 +110,6 @@ impl BridgedNetNamespace {
             try!(Command::new("brctl")
                           .args(&["addif", &self.bridge_name, &self.upstream_iface])
                           .status());
-            try!(Command::new("ip")
-                          .args(&["link", "set", &self.bridge_name, "up"])
-                          .status());
         }
         Ok(())
     }
@@ -117,11 +117,16 @@ impl BridgedNetNamespace {
 
 impl NetNamespace for BridgedNetNamespace {
     fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error> {
+
+        try!(enable_device("lo", pid));
+
         // If it doesn't exist, create the bridge and add the upstream interface
         try!(self.create_bridge());
 
         // Create a veth pair and add one end to the specified bridge.
-        // TODO - don't hard-code veth*
+
+        // TODO(dgreid) - don't hard-code vethC0, select next available number
+        // to enable multiple containers
         try!(Command::new("ip")
                      .args(&["link", "add", "vethC0Host", "type", "veth", "peer", "name", "vethC0"])
                      .status());
@@ -132,16 +137,27 @@ impl NetNamespace for BridgedNetNamespace {
                       .args(&["addif", &self.bridge_name, "vethC0Host"])
                       .status());
         try!(Command::new("ip")
-                      .args(&["link", "set", "vethC0", "up"])
+                      .args(&["link", "set", &self.bridge_name, "up"])
                       .status());
         try!(Command::new("ip")
-                      .args(&["link", "addr", "add", "10.1.1.2/24", "vethC0", "up"])
+                      .args(&["link", "set", "vethC0Host", "up"])
                       .status());
         try!(Command::new("ip")
                      .args(&["link", "set", "vethC0", "netns", &pid.to_string()])
                      .status());
+        try!(Command::new("ip")
+                      .args(&["link", "set", &self.upstream_iface, "up"])
+                      .status());
         try!(Command::new("nsenter")
-                      .args(&["-t", &pid.to_string(), "-n"])
+                      .args(&["-t", &pid.to_string(), "-n", "-m", "-p"])
+                      .args(&["ip", "addr", "add", &self.namespace_ip, "dev", "vethC0"])
+                      .status());
+        try!(Command::new("nsenter")
+                      .args(&["-t", &pid.to_string(), "-n", "-m", "-p"])
+                      .args(&["ip", "link", "set", "vethC0", "up"])
+                      .status());
+        try!(Command::new("nsenter")
+                      .args(&["-t", &pid.to_string(), "-n", "-m", "-p"])
                       .args(&["ip", "route", "add", "default", "via", &self.default_route_ip])
                       .status());
         Ok(())
@@ -159,8 +175,10 @@ impl EmptyNetNamespace {
 
 impl NetNamespace for EmptyNetNamespace {
     fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error> {
-        // Only loopback to bring up.
-        try!(enable_device("lo", pid));
+        // Only loopback to bring up.  If this fails it is not fatal, keep going.
+        match enable_device("lo", pid) {
+            _ => {},
+        }
         Ok(())
     }
 }
