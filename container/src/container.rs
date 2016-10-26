@@ -115,6 +115,7 @@ impl Container {
     fn enter_jail(&self) -> Result<(), ContainerError> {
         try!(nix::unistd::setresuid(0, 0, 0));
         try!(nix::unistd::setresgid(0, 0, 0));
+        try!(self.net_namespace.configure_in_child());
         if let Some(ref cgroup_namespace) = self.cgroup_namespace {
           try!(cgroup_namespace.enter());
         }

@@ -17,15 +17,16 @@ impl From<io::Error> for Error {
     }
 }
 
-fn enable_device(dev: &str, pid: pid_t) -> Result<(), Error> {
-    try!(Command::new("nsenter")
-                  .args(&["-t", &pid.to_string(), "-n", "ip", "link", "set", dev, "up"])
-                  .status());
+fn enable_device(dev: &str) -> Result<(), Error> {
+    try!(Command::new("ip")
+            .args(&["link", "set", dev, "up"])
+            .status());
     Ok(())
 }
 
 pub trait NetNamespace {
     fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error>;
+    fn configure_in_child(&self) -> Result<(), Error>;
 }
 
 pub struct NatNetNamespace {
@@ -59,7 +60,6 @@ impl NetNamespace for NatNetNamespace {
         try!(Command::new("ip")
                      .args(&["link", "set", "veth1", "netns", &pid.to_string()])
                      .status());
-        try!(enable_device("lo", pid));
         // iptables nat masquerade setup
         for iface in self.upstream_ifaces.iter() {
             try!(Command::new("iptables")
@@ -80,6 +80,11 @@ impl NetNamespace for NatNetNamespace {
                       .arg("net.ipv4.ip_forward=1")
                       .status());
 
+        Ok(())
+    }
+
+    fn configure_in_child(&self) -> Result<(), Error> {
+        try!(enable_device("lo"));
         Ok(())
     }
 }
@@ -117,9 +122,6 @@ impl BridgedNetNamespace {
 
 impl NetNamespace for BridgedNetNamespace {
     fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error> {
-
-        try!(enable_device("lo", pid));
-
         // If it doesn't exist, create the bridge and add the upstream interface
         try!(self.create_bridge());
 
@@ -148,18 +150,20 @@ impl NetNamespace for BridgedNetNamespace {
         try!(Command::new("ip")
                       .args(&["link", "set", &self.upstream_iface, "up"])
                       .status());
-        try!(Command::new("nsenter")
-                      .args(&["-t", &pid.to_string(), "-n", "-m", "-p"])
-                      .args(&["ip", "addr", "add", &self.namespace_ip, "dev", "vethC0"])
+        Ok(())
+    }
+
+    fn configure_in_child(&self) -> Result<(), Error> {
+        try!(Command::new("ip")
+                      .args(&["addr", "add", &self.namespace_ip, "dev", "vethC0"])
                       .status());
-        try!(Command::new("nsenter")
-                      .args(&["-t", &pid.to_string(), "-n", "-m", "-p"])
-                      .args(&["ip", "link", "set", "vethC0", "up"])
+        try!(Command::new("ip")
+                      .args(&["link", "set", "vethC0", "up"])
                       .status());
-        try!(Command::new("nsenter")
-                      .args(&["-t", &pid.to_string(), "-n", "-m", "-p"])
-                      .args(&["ip", "route", "add", "default", "via", &self.default_route_ip])
+        try!(Command::new("ip")
+                      .args(&["route", "add", "default", "via", &self.default_route_ip])
                       .status());
+        try!(enable_device("lo"));
         Ok(())
     }
 }
@@ -174,11 +178,14 @@ impl EmptyNetNamespace {
 }
 
 impl NetNamespace for EmptyNetNamespace {
-    fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error> {
-        // Only loopback to bring up.  If this fails it is not fatal, keep going.
-        match enable_device("lo", pid) {
-            _ => {},
-        }
+    fn configure_for_pid(&self, _: pid_t) -> Result<(), Error> {
+        // Only loopback to bring up, that is handled in the child.
+        Ok(())
+    }
+
+    fn configure_in_child(&self) -> Result<(), Error> {
+        // Only loopback to bring up.
+        try!(enable_device("lo"));
         Ok(())
     }
 }
