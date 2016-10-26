@@ -3,6 +3,7 @@ extern crate container;
 
 use container::container::Container;
 use container::mount_namespace::*;
+use container::net_namespace::EmptyNetNamespace;
 use container::user_namespace::UserNamespace;
 
 use self::nix::mount::*;
@@ -21,7 +22,7 @@ fn main() {
     user_namespace.add_gid_mapping(0, getgid() as usize, 1);
 
     let mut c = Container::new("asdf", vec![ CString::new("/bin/bash").unwrap() ],
-                               mount_namespace, user_namespace);
+                               mount_namespace, Box::new(EmptyNetNamespace::new()), user_namespace);
     println!("starting {}", c.name());
     c.start().unwrap();
     c.wait().unwrap();
