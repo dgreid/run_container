@@ -5,4 +5,4 @@ authors = ["Dylan Reid <dgreid@chromium.org>"]
 
 [dependencies]
 container = { path = "../container" }
-nix = "*"
+nix = *
