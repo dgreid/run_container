@@ -123,7 +123,7 @@ fn container_from_oci(config: OciConfig, path: &Path) ->
     let net_ns = Box::new(EmptyNetNamespace::new());
 
     Ok(Container::new(config.hostname.unwrap_or("??".to_string()).as_str(),
-                      argv, mnt_ns, net_ns, user_ns))
+                      argv, None, mnt_ns, net_ns, user_ns))
 }
 
 #[cfg(test)]

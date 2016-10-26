@@ -14,7 +14,7 @@ use std::io::Write;
 const CGROUPS:&'static [ &'static str ] = &[
     "cpu",
     "cpuacct",
-    "cpuset",
+//    "cpuset",
     "freezer",
     "devices",
 ];
@@ -87,7 +87,13 @@ impl CGroupDir {
         db.mode(0o700 as u32);
         match db.create(cg_dir.path.as_path()) {
             Ok(()) => Some(cg_dir),
-            Err(_) => None,
+            Err(e) => {
+                if e.kind() == io::ErrorKind::AlreadyExists {
+                    Some(cg_dir)
+                } else {
+                    None
+                }
+            },
         }
     }
 

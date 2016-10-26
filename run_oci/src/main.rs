@@ -3,15 +3,18 @@ extern crate container_config_reader;
 extern crate getopts;
 extern crate nix;
 
-use container_config_reader::container_from_oci_config;
+use container::cgroup_namespace::CGroupNamespace;
 use container::net_namespace::{NetNamespace, BridgedNetNamespace, EmptyNetNamespace, NatNetNamespace};
 use container::user_namespace::UserNamespace;
+use container_config_reader::container_from_oci_config;
 
 use nix::unistd::{getgid, getuid};
 use std::env;
+use std::path::Path;
 use std::path::PathBuf;
 
 struct CommandOptions {
+    cgroup_ns: Option<CGroupNamespace>,
     container_path: Option<PathBuf>,
     net_ns: Option<Box<NetNamespace>>,
     use_configured_users: bool,
@@ -28,12 +31,14 @@ impl CommandOptions {
     pub fn new(argv: &Vec<String>) -> Option<CommandOptions> {
         let mut opts = getopts::Options::new();
         opts.optopt("b", "bridge_name", "If network is bridged, the bridge to use", "NAME");
+        opts.optopt("c", "cgroup_name", "Name to give the cgroup", "NAME");
         opts.optopt("d", "bridge_device", "If network is bridged, the upstream dev to use", "DEV");
         opts.optopt("i", "bridged_ip",
                     "If network is bridged, the IP address for the container", "IP");
         opts.optopt("m", "masquerade_ip",
                     "The IP address of the upstream masquerade device", "IP");
         opts.optopt("n", "net_type", "Network Type (bridge, masquerade, or empty)", "TYPE");
+        opts.optopt("p", "cgroup_parent", "parent directory of the container cgroups", "NAME");
         opts.optmulti("q", "masquerade_dev",
                       "Upstreadm device for NAT, can be specified multiple times", "DEV");
         opts.optflag("u", "user_configured_user", "Use user namespace from the config.json");
@@ -95,7 +100,23 @@ impl CommandOptions {
             }
         }
 
+        let cgroup_parent = matches.opt_str("p").unwrap_or("".to_string());
+        let cgroup_name = matches.opt_str("c");
+        let cgroup_ns = if cgroup_name.is_some() {
+            let cgns = CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
+                                 Path::new(&cgroup_parent),
+                                 Path::new(&cgroup_name.unwrap()));
+            if cgns.is_none() {
+                println!("cgroup setup error");
+                return None;
+            }
+            cgns
+        } else {
+            None
+        };
+
         Some(CommandOptions {
+            cgroup_ns: cgroup_ns,
             container_path: Some(PathBuf::from(&matches.free[0])),
             net_ns: net_ns,
             use_configured_users: matches.opt_present("u"),
@@ -105,6 +126,10 @@ impl CommandOptions {
     fn print_usage(program: &str, opts: &getopts::Options) {
         let brief = format!("Usage: {} [options] <Container dir>", program);
         print!("{}", opts.usage(&brief));
+    }
+
+    pub fn get_cgroup_namespace(&mut self) -> Option<CGroupNamespace> {
+        self.cgroup_ns.take()
     }
 
     pub fn get_net_namespace(&mut self) -> Box<NetNamespace> {
@@ -129,8 +154,8 @@ fn main() {
 
     let mut c = container_from_oci_config(&cmd_opts.get_container_path()).expect("Failed to parse config");
 
+    c.set_cgroup_namespace(cmd_opts.get_cgroup_namespace());
     c.set_net_namespace(cmd_opts.get_net_namespace());
-
     if !cmd_opts.should_use_user_config() {
         let mut user_ns = UserNamespace::new();
         user_ns.add_uid_mapping(0, getuid() as usize, 1);
