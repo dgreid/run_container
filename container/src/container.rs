@@ -123,6 +123,8 @@ impl Container {
     }
 
     fn do_clone() -> Result<pid_t, nix::Error> {
+        nix::unistd::setpgid(0, 0);
+
         unsafe {
             // TODO(dgreid) - hard coded x86_64 syscall value for clone
 	    let clone_flags  = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC
@@ -138,8 +140,10 @@ impl Container {
     }
 
     pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), ContainerError> {
-        let mut uid_file = try!(fs::File::create(format!("/proc/{}/uid_map", self.pid)));
-        let mut gid_file = try!(fs::File::create(format!("/proc/{}/gid_map", self.pid)));
+        let mut uid_file = try!(fs::OpenOptions::new().write(true).read(false).create(false)
+                                                      .open(format!("/proc/{}/uid_map", self.pid)));
+        let mut gid_file = try!(fs::OpenOptions::new().write(true).read(false).create(false)
+                                                      .open(format!("/proc/{}/gid_map", self.pid)));
         try!(uid_file.write_all(self.user_namespace.uid_config_string().as_bytes()));
         try!(gid_file.write_all(self.user_namespace.gid_config_string().as_bytes()));
         drop(uid_file);
