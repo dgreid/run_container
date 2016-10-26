@@ -21,7 +21,7 @@ fn main() {
     user_namespace.add_uid_mapping(0, getuid() as usize, 1);
     user_namespace.add_gid_mapping(0, getgid() as usize, 1);
 
-    let mut c = Container::new("asdf", vec![ CString::new("/bin/bash").unwrap() ], None,
+    let mut c = Container::new("asdf", vec![ CString::new("/bin/sh").unwrap() ], None,
                                mount_namespace, Box::new(EmptyNetNamespace::new()), user_namespace);
     println!("starting {}", c.name());
     c.start().unwrap();
