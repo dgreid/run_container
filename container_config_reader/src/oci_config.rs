@@ -211,6 +211,29 @@ pub struct OciLinuxDevice {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct OciSeccompArg {
+    pub index: u32,
+    pub value: u64,
+    pub value2: u64,
+    pub op: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciSeccompSyscall {
+    pub name: String,
+    pub action: String,
+    pub args: Option<Vec<OciSeccompArg>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciSeccomp {
+    #[serde(rename="defaultAction")]
+    pub default_action: String,
+    pub architectures: Vec<String>,
+    pub syscalls: Vec<OciSeccompSyscall>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct OciLinux {
     pub devices: Option<Vec<OciLinuxDevice>>,
     #[serde(rename="cgroupsPath")]
@@ -229,7 +252,8 @@ pub struct OciLinux {
     pub rootfs_propagation: Option<String>,
     #[serde(rename="mountLabel")]
     pub mount_label: Option<String>,
-    // TODO seccomp, sysctl
+    pub seccomp: Option<OciSeccomp>,
+    // TODO sysctl
 }
 
 #[derive(Serialize, Deserialize)]
@@ -254,6 +278,7 @@ mod tests {
     use super::OciLinuxDevice;
     use super::OciLinuxNamespaceMapping;
     use super::OciConfig;
+    use super::OciSeccomp;
 
     #[test]
     fn json_test() {
@@ -484,7 +509,31 @@ mod tests {
                         "/proc/irq",
                         "/proc/sys",
                         "/proc/sysrq-trigger"
-                    ]
+                    ],
+                    "seccomp": {
+                        "defaultAction": "SCP_ACT_KILL",
+                        "architectures": [
+                            "SCP_ARCH_X86"
+                        ],
+                        "syscalls": [
+                            {
+                                "name": "read",
+                                "action": "SCP_ACT_ALLOW"
+                            },
+                            {
+                                "name": "write",
+                                "action": "SCP_ACT_ALLOW",
+                                "args": [
+                                    {
+                                        "index": 1,
+                                        "value": 255,
+                                        "value2": 4,
+                                        "op": "SCMP_CMP_EQ"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
 		}
             }
         "#;
@@ -537,5 +586,17 @@ mod tests {
         assert_eq!(id_map.host_id, 1000);
         assert_eq!(id_map.container_id, 0);
         assert_eq!(id_map.size, 10);
+        // seccomp
+        let seccomp: &OciSeccomp = basic_config.linux.as_ref().unwrap().seccomp.as_ref().unwrap();
+        assert_eq!(seccomp.default_action, "SCP_ACT_KILL");
+        assert_eq!(seccomp.architectures[0], "SCP_ARCH_X86");
+        assert_eq!(seccomp.syscalls[0].name, "read");
+        assert_eq!(seccomp.syscalls[0].action, "SCP_ACT_ALLOW");
+        assert_eq!(seccomp.syscalls[1].name, "write");
+        assert_eq!(seccomp.syscalls[1].action, "SCP_ACT_ALLOW");
+        assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].index, 1);
+        assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].value, 255);
+        assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].value2, 4);
+        assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].op, "SCMP_CMP_EQ");
     }
 }
