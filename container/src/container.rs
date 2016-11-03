@@ -124,7 +124,7 @@ impl Container {
     }
 
     fn do_clone() -> Result<pid_t, nix::Error> {
-        nix::unistd::setpgid(0, 0);
+        try!(nix::unistd::setpgid(0, 0));
 
         unsafe {
             // TODO(dgreid) - hard coded x86_64 syscall value for clone
