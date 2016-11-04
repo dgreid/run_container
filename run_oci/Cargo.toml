@@ -7,6 +7,6 @@ authors = ["Dylan Reid <dgreid@chromium.org>"]
 container = { path = "../container" }
 container_config_reader = { path = "../container_config_reader" }
 getopts = "*"
-nix = "*"
+nix = { git = "http://github.com/nix-rust/nix.git" }
 serde = "*"
 serde_json = "*"

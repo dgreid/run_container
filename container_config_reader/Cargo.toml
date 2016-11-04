@@ -5,7 +5,7 @@ authors = ["Dylan Reid <dgreid@chromium.org>"]
 
 [dependencies]
 container = { path = "../container" }
-nix = "*"
+nix = { git = "http://github.com/nix-rust/nix.git" }
 protobuf = "*"
 serde = "*"
 serde_json = "*"
