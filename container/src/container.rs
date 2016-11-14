@@ -212,6 +212,7 @@ mod test {
     use std::ffi::CString;
     use user_namespace::*;
     use self::nix::unistd::getuid;
+    use self::nix::unistd::getgid;
     use self::tempdir::TempDir;
     use std::fs;
 
@@ -243,6 +244,7 @@ mod test {
         let mount_namespace = MountNamespace::new(PathBuf::from("/tmp/foo"));
         let mut user_namespace = UserNamespace::new();
         user_namespace.add_uid_mapping(0, getuid() as usize, 1);
+        user_namespace.add_gid_mapping(0, getgid() as usize, 1);
 	// TODO(dgreid) - add test with each network namespace
         let mut c = Container::new("asdf", argv, Some(cgroup_namespace), mount_namespace,
                                    Box::new(EmptyNetNamespace::new()), user_namespace);
