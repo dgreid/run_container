@@ -17,6 +17,7 @@ struct CommandOptions {
     cgroup_ns: Option<CGroupNamespace>,
     container_path: Option<PathBuf>,
     net_ns: Option<Box<NetNamespace>>,
+    bind_mounts: Option<Vec<(String, String)>>,
     use_configured_users: bool,
 }
 
@@ -30,7 +31,9 @@ struct CommandOptions {
 impl CommandOptions {
     pub fn new(argv: &Vec<String>) -> Option<CommandOptions> {
         let mut opts = getopts::Options::new();
-        opts.optopt("b", "bridge_name", "If network is bridged, the bridge to use", "NAME");
+        opts.optmulti("b", "bind_mount",
+                      "<external dir>:<internal dir> - Add a bind mount from external to internal",
+                      "NAME");
         opts.optopt("c", "cgroup_name", "Name to give the cgroup", "NAME");
         opts.optopt("d", "bridge_device", "If network is bridged, the upstream dev to use", "DEV");
         opts.optopt("i", "bridged_ip",
@@ -41,6 +44,7 @@ impl CommandOptions {
         opts.optopt("p", "cgroup_parent", "parent directory of the container cgroups", "NAME");
         opts.optmulti("q", "masquerade_dev",
                       "Upstreadm device for NAT, can be specified multiple times", "DEV");
+        opts.optopt("r", "bridge_name", "If network is bridged, the bridge to use", "NAME");
         opts.optflag("u", "use_current_user", "Map the current user/group only");
 
         let matches = match opts.parse(&argv[1..]) {
@@ -56,13 +60,24 @@ impl CommandOptions {
             return None;
         }
 
-        let bridge_name = matches.opt_str("b");
+        let bridge_name = matches.opt_str("r");
         let bridge_device = matches.opt_str("d");
         let bridged_ip = matches.opt_str("i");;
         let masquerade_ip = matches.opt_str("m");
         let mut masquerade_devices = Vec::new();
         for dev in matches.opt_strs("q").into_iter() {
             masquerade_devices.push(dev);
+        }
+
+        let mut bind_mounts = Vec::new();
+        for mount in matches.opt_strs("b").into_iter() {
+            let dirs: Vec<&str>= mount.split(":").collect();
+            if dirs.len() != 2 {
+                println!("Invalid bind mount specified");
+                CommandOptions::print_usage(&argv[0], &opts);
+                return None;
+            }
+            bind_mounts.push((dirs[0].to_string(), dirs[1].to_string()));
         }
 
         let mut net_ns: Option<Box<NetNamespace>> = Some(Box::new(EmptyNetNamespace::new()));
@@ -119,6 +134,7 @@ impl CommandOptions {
             cgroup_ns: cgroup_ns,
             container_path: Some(PathBuf::from(&matches.free[0])),
             net_ns: net_ns,
+            bind_mounts: Some(bind_mounts),
             use_configured_users: !matches.opt_present("u"),
         })
     }
@@ -143,6 +159,10 @@ impl CommandOptions {
     pub fn should_use_user_config(&self) -> bool {
         self.use_configured_users
     }
+
+    pub fn get_bind_mounts(&mut self) -> Vec<(String, String)> {
+        self.bind_mounts.take().unwrap()
+    }
 }
 
 fn main() {
@@ -152,7 +172,9 @@ fn main() {
         None => return,
     };
 
-    let mut c = container_from_oci_config(&cmd_opts.get_container_path()).expect("Failed to parse config");
+    let mut c = container_from_oci_config(&cmd_opts.get_container_path(),
+                                          cmd_opts.get_bind_mounts())
+                    .expect("Failed to parse config");
 
     c.set_cgroup_namespace(cmd_opts.get_cgroup_namespace());
     c.set_net_namespace(cmd_opts.get_net_namespace());

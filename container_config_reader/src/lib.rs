@@ -50,17 +50,19 @@ impl From<serde_json::Error> for ContainerConfigError {
     }
 }
 
-pub fn container_from_oci_config(path: &Path) -> Result<Container, ContainerConfigError> {
+pub fn container_from_oci_config(path: &Path, bind_mounts: Vec<(String, String)>)
+        -> Result<Container, ContainerConfigError> {
     let mut config_path = PathBuf::from(path);
     config_path.push("config.json");
     let config_file = try!(File::open(&config_path));
     let reader = BufReader::new(config_file);
     let oci_config: OciConfig = try!(serde_json::from_reader(reader));
-    container_from_oci(oci_config, path)
+    container_from_oci(oci_config, bind_mounts, path)
 }
 
-fn container_from_oci(config: OciConfig, path: &Path) ->
-        Result<Container, ContainerConfigError> {
+fn container_from_oci(config: OciConfig, bind_mounts: Vec<(String, String)>,
+                      path: &Path)
+        -> Result<Container, ContainerConfigError> {
     let mut root_path = PathBuf::from(path);
     root_path.push(&config.root.path);
     let mut mnt_ns = MountNamespace::new(root_path);
@@ -92,6 +94,12 @@ fn container_from_oci(config: OciConfig, path: &Path) ->
                                   Some(m.mount_type), flags, options));
         }
     }
+    for m in bind_mounts {
+        try!(mnt_ns.add_mount(Some(PathBuf::from(m.0)),
+			      PathBuf::from(m.1.trim_matches('/')), None,
+                              MS_BIND, Vec::new()));
+    }
+    // Always mount sysfs.
     try!(mnt_ns.add_mount(None, PathBuf::from("sys"), Some("sysfs".to_string()), MsFlags::empty(),
                           Vec::new()));
     let mut user_ns = UserNamespace::new();
