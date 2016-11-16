@@ -41,7 +41,7 @@ impl CommandOptions {
         opts.optopt("p", "cgroup_parent", "parent directory of the container cgroups", "NAME");
         opts.optmulti("q", "masquerade_dev",
                       "Upstreadm device for NAT, can be specified multiple times", "DEV");
-        opts.optflag("u", "user_configured_user", "Use user namespace from the config.json");
+        opts.optflag("u", "use_current_user", "Map the current user/group only");
 
         let matches = match opts.parse(&argv[1..]) {
             Ok(m) => m,
@@ -119,7 +119,7 @@ impl CommandOptions {
             cgroup_ns: cgroup_ns,
             container_path: Some(PathBuf::from(&matches.free[0])),
             net_ns: net_ns,
-            use_configured_users: matches.opt_present("u"),
+            use_configured_users: !matches.opt_present("u"),
         })
     }
 
