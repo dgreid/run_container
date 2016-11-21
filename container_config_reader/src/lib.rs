@@ -1,7 +1,8 @@
-#![feature(custom_derive, plugin)]
-#![plugin(serde_macros)]
+#![feature(proc_macro, rustc_macro, rustc_macro_lib)]
 
 extern crate nix;
+#[macro_use]
+extern crate serde_derive;
 extern crate serde_json;
 
 extern crate container;

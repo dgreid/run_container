@@ -8,5 +8,5 @@ container = { path = "../container" }
 nix = { git = "http://github.com/nix-rust/nix.git" }
 serde = "*"
 serde_json = "*"
-serde_macros = "*"
+serde_derive = "*"
 
