@@ -43,7 +43,7 @@ impl CommandOptions {
         opts.optopt("n", "net_type", "Network Type (bridge, masquerade, or empty)", "TYPE");
         opts.optopt("p", "cgroup_parent", "parent directory of the container cgroups", "NAME");
         opts.optmulti("q", "masquerade_dev",
-                      "Upstreadm device for NAT, can be specified multiple times", "DEV");
+                      "Upstream device for NAT, can be specified multiple times", "DEV");
         opts.optopt("r", "bridge_name", "If network is bridged, the bridge to use", "NAME");
         opts.optflag("u", "use_current_user", "Map the current user/group only");
 
