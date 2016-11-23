@@ -1,8 +1,0 @@
-[package]
-name = "run_foo"
-version = "0.1.0"
-authors = ["Dylan Reid <dgreid@chromium.org>"]
-
-[dependencies]
-container = { path = "../container" }
-nix = { git = "http://github.com/nix-rust/nix.git" }
