@@ -1,4 +1,4 @@
-#![feature(proc_macro, rustc_macro, rustc_macro_lib)]
+#![feature(proc_macro)]
 
 extern crate nix;
 #[macro_use]
