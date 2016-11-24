@@ -511,18 +511,18 @@ mod tests {
                         "/proc/sysrq-trigger"
                     ],
                     "seccomp": {
-                        "defaultAction": "SCP_ACT_KILL",
+                        "defaultAction": "SCMP_ACT_KILL",
                         "architectures": [
-                            "SCP_ARCH_X86"
+                            "SCMP_ARCH_X86"
                         ],
                         "syscalls": [
                             {
                                 "name": "read",
-                                "action": "SCP_ACT_ALLOW"
+                                "action": "SCMP_ACT_ALLOW"
                             },
                             {
                                 "name": "write",
-                                "action": "SCP_ACT_ALLOW",
+                                "action": "SCMP_ACT_ALLOW",
                                 "args": [
                                     {
                                         "index": 1,
@@ -588,12 +588,12 @@ mod tests {
         assert_eq!(id_map.size, 10);
         // seccomp
         let seccomp: &OciSeccomp = basic_config.linux.as_ref().unwrap().seccomp.as_ref().unwrap();
-        assert_eq!(seccomp.default_action, "SCP_ACT_KILL");
-        assert_eq!(seccomp.architectures[0], "SCP_ARCH_X86");
+        assert_eq!(seccomp.default_action, "SCMP_ACT_KILL");
+        assert_eq!(seccomp.architectures[0], "SCMP_ARCH_X86");
         assert_eq!(seccomp.syscalls[0].name, "read");
-        assert_eq!(seccomp.syscalls[0].action, "SCP_ACT_ALLOW");
+        assert_eq!(seccomp.syscalls[0].action, "SCMP_ACT_ALLOW");
         assert_eq!(seccomp.syscalls[1].name, "write");
-        assert_eq!(seccomp.syscalls[1].action, "SCP_ACT_ALLOW");
+        assert_eq!(seccomp.syscalls[1].action, "SCMP_ACT_ALLOW");
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].index, 1);
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].value, 255);
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].value2, 4);

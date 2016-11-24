@@ -6,3 +6,4 @@ authors = ["Dylan Reid <dgreid@chromium.org>"]
 [dependencies]
 nix = { git = "http://github.com/nix-rust/nix.git" }
 tempdir = "*"
+seccomp-sys = "*"
