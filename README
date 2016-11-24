@@ -1,0 +1,13 @@
+Simple usage:
+
+Start an ubuntu container that you own as a normal user (no network):
+run_oci -u <Path to image>
+
+Run a container that then runs a sub container with network:
+First one is started as root, it has run_oci as it's only program and starts the second one.
+
+# /usr/local/bin/run_oci -n masquerade --masquerade_dev eth0 --masquerade_dev wlan0 --masquerade_ip 10.1.1.1/24 /mnt/stateful_partition/containers/run_container/
+
+Then from inside that container:
+
+# run_oci -u -n bridge --bridged_ip 10.1.1.2/24 --bridge_device veth1 --bridge_name br0 --masquerade_ip 10.1.1.1 /containers/busybox/
