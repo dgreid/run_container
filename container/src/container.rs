@@ -5,6 +5,7 @@ use mount_namespace::*;
 use net_namespace;
 use net_namespace::NetNamespace;
 use sync_pipe::*;
+use syscall_defines::linux::LinuxSyscall::*;
 use user_namespace::UserNamespace;
 
 use self::nix::sys::ioctl::libc::pid_t;
@@ -127,11 +128,10 @@ impl Container {
         try!(nix::unistd::setpgid(0, 0));
 
         unsafe {
-            // TODO(dgreid) - hard coded x86_64 syscall value for clone
 	    let clone_flags  = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC
                                | CLONE_NEWUTS | CLONE_NEWNET;
-	    let pid = nix::sys::syscall::syscall(
-                    56, clone_flags.bits() | nix::sys::signal::SIGCHLD as i32, 0);
+	    let pid = nix::sys::syscall::syscall(SYS_clone as i64,
+                            clone_flags.bits() | nix::sys::signal::SIGCHLD as i32, 0);
 	    if pid < 0 {
                 Err(nix::Error::Sys(nix::Errno::UnknownErrno))
             } else {
