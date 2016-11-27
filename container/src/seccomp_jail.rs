@@ -74,26 +74,39 @@ fn op_from_string(op_str: &str) -> Result<seccomp_sys::scmp_compare, Error> {
         "SCMP_CMP_GE" => Ok(seccomp_sys::scmp_compare::SCMP_CMP_GE),
         "SCMP_CMP_GT" => Ok(seccomp_sys::scmp_compare::SCMP_CMP_GT),
         "SCMP_CMP_MASKED_EQ" => Ok(seccomp_sys::scmp_compare::SCMP_CMP_MASKED_EQ),
-        _ => Err(Error::InvalidCmpOp)
+        _ => Err(Error::InvalidCmpOp),
     }
 }
 
 impl SeccompConfig {
     pub fn new(default_action: &str) -> Result<SeccompConfig, Error> {
         let default_action = try!(action_from_string(default_action));
-        Ok(SeccompConfig { default_action: default_action, rules: HashMap::new() })
+        Ok(SeccompConfig {
+            default_action: default_action,
+            rules: HashMap::new(),
+        })
     }
 
-    pub fn add_rule(&mut self, syscall_name: &str, action: &str,
-                    arg_index: Option<u32>, val: Option<u64>,
-                    val2: Option<u64>, op: Option<&str>) -> Result<(), Error> {
-        let hash_key = SyscallRule { name: syscall_name.to_string(),
-                                     action: action.to_string() };
+    pub fn add_rule(&mut self,
+                    syscall_name: &str,
+                    action: &str,
+                    arg_index: Option<u32>,
+                    val: Option<u64>,
+                    val2: Option<u64>,
+                    op: Option<&str>)
+                    -> Result<(), Error> {
+        let hash_key = SyscallRule {
+            name: syscall_name.to_string(),
+            action: action.to_string(),
+        };
         let mut ops = self.rules.entry(hash_key).or_insert(Vec::new());
         if let (Some(op), Some(arg_index)) = (op, arg_index) {
             ops.push(seccomp_sys::scmp_arg_cmp {
-                    arg: arg_index, op: op_from_string(op)?,
-                    datum_a: val.unwrap_or(0), datum_b: val2.unwrap_or(0) });
+                arg: arg_index,
+                op: op_from_string(op)?,
+                datum_a: val.unwrap_or(0),
+                datum_b: val2.unwrap_or(0),
+            });
         }
         Ok(())
     }
@@ -109,9 +122,11 @@ impl SeccompJail {
             for (key, ops) in &config.rules {
                 let syscall_number = syscall_defines::from_name(&key.name)?;
                 let action = action_number(&action_from_string(&key.action)?);
-                let ret = seccomp_sys::seccomp_rule_add_array(
-                        context, action, syscall_number as i32,
-                        ops.len() as u32, ops.as_slice().as_ptr());
+                let ret = seccomp_sys::seccomp_rule_add_array(context,
+                                                              action,
+                                                              syscall_number as i32,
+                                                              ops.len() as u32,
+                                                              ops.as_slice().as_ptr());
                 if ret != 0 {
                     seccomp_sys::seccomp_release(context);
                     return Err(Error::SeccompRuleAddFail);
@@ -122,9 +137,7 @@ impl SeccompJail {
     }
 
     pub fn enter(&self) -> Result<(), Error> {
-        let ret = unsafe {
-            seccomp_sys::seccomp_load(self.ctx)
-        };
+        let ret = unsafe { seccomp_sys::seccomp_load(self.ctx) };
         if ret == 0 {
             Ok(())
         } else {
@@ -149,13 +162,25 @@ mod test {
     fn return_errno() {
         let mut config = match SeccompConfig::new("SCMP_ACT_ALLOW") {
             Ok(c) => c,
-            Err(_) => {assert!(false); return;},
+            Err(_) => {
+                assert!(false);
+                return;
+            }
         };
-        assert!(config.add_rule("getuid", "SCMP_ACT_ERRNO", Some(0), Some(0),
-                                None, Some("SCMP_CMP_GE")).is_ok());
+        assert!(config.add_rule("getuid",
+                      "SCMP_ACT_ERRNO",
+                      Some(0),
+                      Some(0),
+                      None,
+                      Some("SCMP_CMP_GE"))
+            .is_ok());
         let jail = match SeccompJail::new(&config) {
             Ok(j) => j,
-            Err(e) => {println!("{:?}", e); assert!(false); return;},
+            Err(e) => {
+                println!("{:?}", e);
+                assert!(false);
+                return;
+            }
         };
 
         let old_uid = nix::unistd::getuid();
@@ -168,21 +193,28 @@ mod test {
     fn blacklist_errno() {
         let mut config = match SeccompConfig::new("SCMP_ACT_ERRNO") {
             Ok(c) => c,
-            Err(_) => {assert!(false); return;},
+            Err(_) => {
+                assert!(false);
+                return;
+            }
         };
-        assert!(config.add_rule("getuid", "SCMP_ACT_ALLOW", None, None,
-                                 None, None).is_ok());
-        assert!(config.add_rule("futex", "SCMP_ACT_ALLOW", None, None,
-                                 None, None).is_ok());
-        assert!(config.add_rule("exit", "SCMP_ACT_ALLOW", None, None,
-                                 None, None).is_ok());
-        assert!(config.add_rule("exit_group", "SCMP_ACT_ALLOW", None, None,
-                                 None, None).is_ok());
-        assert!(config.add_rule("rt_sigreturn", "SCMP_ACT_ALLOW", None, None,
-                                 None, None).is_ok());
+        assert!(config.add_rule("getuid", "SCMP_ACT_ALLOW", None, None, None, None)
+            .is_ok());
+        assert!(config.add_rule("futex", "SCMP_ACT_ALLOW", None, None, None, None)
+            .is_ok());
+        assert!(config.add_rule("exit", "SCMP_ACT_ALLOW", None, None, None, None)
+            .is_ok());
+        assert!(config.add_rule("exit_group", "SCMP_ACT_ALLOW", None, None, None, None)
+            .is_ok());
+        assert!(config.add_rule("rt_sigreturn", "SCMP_ACT_ALLOW", None, None, None, None)
+            .is_ok());
         let jail = match SeccompJail::new(&config) {
             Ok(j) => j,
-            Err(e) => {println!("{:?}", e); assert!(false); return;},
+            Err(e) => {
+                println!("{:?}", e);
+                assert!(false);
+                return;
+            }
         };
 
         let old_uid = nix::unistd::getuid();

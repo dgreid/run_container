@@ -252,8 +252,7 @@ pub struct OciLinux {
     pub rootfs_propagation: Option<String>,
     #[serde(rename="mountLabel")]
     pub mount_label: Option<String>,
-    pub seccomp: Option<OciSeccomp>,
-    // TODO sysctl
+    pub seccomp: Option<OciSeccomp>, // TODO sysctl
 }
 
 #[derive(Serialize, Deserialize)]
@@ -266,8 +265,7 @@ pub struct OciConfig {
     pub hostname: Option<String>,
     pub mounts: Option<Vec<OciMount>>,
     pub hooks: Option<OciHooks>,
-    pub linux: Option<OciLinux>,
-    // TODO - Annotations
+    pub linux: Option<OciLinux>, // TODO - Annotations
 }
 
 #[cfg(test)]
@@ -548,41 +546,98 @@ mod tests {
         assert_eq!(basic_config.process.user.gid, 0);
         assert_eq!(basic_config.process.user.additional_gids, None);
         assert_eq!(basic_config.process.args[0], "sh");
-        assert_eq!(basic_config.process.env.as_ref()
-            .and_then(|e| e.get(1)), Some(&"TERM=xterm".to_string()));
+        assert_eq!(basic_config.process
+                       .env
+                       .as_ref()
+                       .and_then(|e| e.get(1)),
+                   Some(&"TERM=xterm".to_string()));
         assert_eq!(basic_config.process.cwd, "/");
-        assert_eq!(basic_config.process.capabilities.as_ref()
-            .and_then(|caps| caps.get(2)), Some(&"CAP_NET_BIND_SERVICE".to_string()));
-        assert_eq!(basic_config.process.rlimits
-            .map(|rlimits| rlimits[0].hard), Some(1024));
+        assert_eq!(basic_config.process
+                       .capabilities
+                       .as_ref()
+                       .and_then(|caps| caps.get(2)),
+                   Some(&"CAP_NET_BIND_SERVICE".to_string()));
+        assert_eq!(basic_config.process
+                       .rlimits
+                       .map(|rlimits| rlimits[0].hard),
+                   Some(1024));
         assert_eq!(basic_config.process.apparmor_profile, None);
         assert_eq!(basic_config.process.selinux_label, None);
         assert_eq!(basic_config.process.no_new_privileges, Some(true));
         assert_eq!(basic_config.hostname, Some("tester".to_string()));
-        assert_eq!(basic_config.mounts.as_ref().unwrap().get(0).unwrap().options, None);
+        assert_eq!(basic_config.mounts.as_ref().unwrap().get(0).unwrap().options,
+                   None);
         assert_eq!(basic_config.mounts.as_ref().unwrap().get(1).unwrap().destination,
                    "/dev".to_string());
-        assert_eq!(basic_config.mounts.as_ref().unwrap().get(2).unwrap().options
-                .as_ref().unwrap().len(), 6);
-        assert_eq!(basic_config.hooks.as_ref().unwrap().prestart.as_ref().unwrap()
-                .get(1).unwrap().path, "/usr/bin/setup-network".to_string());
-        assert_eq!(basic_config.linux.as_ref().unwrap()
-                .resources.as_ref().unwrap()
-                .network.as_ref().unwrap().class_id, Some(1048577));
-        assert_eq!(basic_config.linux.as_ref().unwrap()
-                .masked_paths.as_ref().unwrap().len(), 5);
-        assert_eq!(basic_config.linux.as_ref().unwrap()
-                .read_only_paths.as_ref().unwrap().len(), 6);
+        assert_eq!(basic_config.mounts
+                       .as_ref()
+                       .unwrap()
+                       .get(2)
+                       .unwrap()
+                       .options
+                       .as_ref()
+                       .unwrap()
+                       .len(),
+                   6);
+        assert_eq!(basic_config.hooks
+                       .as_ref()
+                       .unwrap()
+                       .prestart
+                       .as_ref()
+                       .unwrap()
+                       .get(1)
+                       .unwrap()
+                       .path,
+                   "/usr/bin/setup-network".to_string());
+        assert_eq!(basic_config.linux
+                       .as_ref()
+                       .unwrap()
+                       .resources
+                       .as_ref()
+                       .unwrap()
+                       .network
+                       .as_ref()
+                       .unwrap()
+                       .class_id,
+                   Some(1048577));
+        assert_eq!(basic_config.linux
+                       .as_ref()
+                       .unwrap()
+                       .masked_paths
+                       .as_ref()
+                       .unwrap()
+                       .len(),
+                   5);
+        assert_eq!(basic_config.linux
+                       .as_ref()
+                       .unwrap()
+                       .read_only_paths
+                       .as_ref()
+                       .unwrap()
+                       .len(),
+                   6);
         // Devices
-        let dev: &OciLinuxDevice = basic_config.linux.as_ref().unwrap()
-                .devices.as_ref().unwrap().get(0).unwrap();
+        let dev: &OciLinuxDevice = basic_config.linux
+            .as_ref()
+            .unwrap()
+            .devices
+            .as_ref()
+            .unwrap()
+            .get(0)
+            .unwrap();
         assert_eq!(dev.dev_type, "c");
         assert_eq!(dev.path, "/dev/fuse");
         assert_eq!(dev.file_mode, Some(438));
         assert_eq!(dev.uid, Some(0));
         // Namespace Maps
-        let id_map: &OciLinuxNamespaceMapping = basic_config.linux.as_ref().unwrap()
-                .uid_mappings.as_ref().unwrap().get(0).unwrap();
+        let id_map: &OciLinuxNamespaceMapping = basic_config.linux
+            .as_ref()
+            .unwrap()
+            .uid_mappings
+            .as_ref()
+            .unwrap()
+            .get(0)
+            .unwrap();
         assert_eq!(id_map.host_id, 1000);
         assert_eq!(id_map.container_id, 0);
         assert_eq!(id_map.size, 10);
@@ -597,6 +652,7 @@ mod tests {
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].index, 1);
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].value, 255);
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].value2, 4);
-        assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].op, "SCMP_CMP_EQ");
+        assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].op,
+                   "SCMP_CMP_EQ");
     }
 }

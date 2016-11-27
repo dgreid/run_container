@@ -1,6 +1,6 @@
 extern crate nix;
 
-use self::nix::unistd::{ pipe, read, write, close };
+use self::nix::unistd::{pipe, read, write, close};
 use std::os::unix::io::RawFd;
 
 pub struct SyncPipe {
@@ -10,8 +10,11 @@ pub struct SyncPipe {
 
 impl SyncPipe {
     pub fn new() -> Result<SyncPipe, nix::Error> {
-        pipe().map(| fds | {
-            SyncPipe { read_fd: fds.0, write_fd: fds.1 }
+        pipe().map(|fds| {
+            SyncPipe {
+                read_fd: fds.0,
+                write_fd: fds.1,
+            }
         })
     }
 

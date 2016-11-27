@@ -43,13 +43,20 @@ pub struct MountNamespace {
 
 impl MountNamespace {
     pub fn new(root: PathBuf) -> Self {
-        MountNamespace { root: root, mounts: Vec::new(), }
+        MountNamespace {
+            root: root,
+            mounts: Vec::new(),
+        }
     }
 
     // target path must be relative, no leading '/'.
-    pub fn add_mount(&mut self, source: Option<PathBuf>, target: PathBuf,
-                    fstype: Option<String>, flags: MsFlags,
-                    options: Vec<String>) -> Result<(), MountError> {
+    pub fn add_mount(&mut self,
+                     source: Option<PathBuf>,
+                     target: PathBuf,
+                     fstype: Option<String>,
+                     flags: MsFlags,
+                     options: Vec<String>)
+                     -> Result<(), MountError> {
         if target.is_absolute() {
             return Err(MountError::InvalidTargetPath);
         }
@@ -79,8 +86,10 @@ impl MountNamespace {
             if !target.exists() {
                 try!(fs::create_dir(target.as_path()));
             }
-            try!(nix::mount::mount(m.source.as_ref(), target.as_path(),
-                                   m.fstype.as_ref().map(|t| &**t), m.flags,
+            try!(nix::mount::mount(m.source.as_ref(),
+                                   target.as_path(),
+                                   m.fstype.as_ref().map(|t| &**t),
+                                   m.flags,
                                    Some(&m.options.join(",")[..])));
         }
 
@@ -95,19 +104,21 @@ impl MountNamespace {
         let old_root = try!(OpenDir::new(Path::new("/")));
         let new_root = try!(OpenDir::new(self.root.as_path()));
 
-	// To ensure j->chrootdir is the root of a filesystem,
-	// do a self bind mount.
-        try!(nix::mount::mount(Some(self.root.as_path()), self.root.as_path(),
-                               None::<&Path>, MS_BIND | MS_REC,
+        // To ensure j->chrootdir is the root of a filesystem,
+        // do a self bind mount.
+        try!(nix::mount::mount(Some(self.root.as_path()),
+                               self.root.as_path(),
+                               None::<&Path>,
+                               MS_BIND | MS_REC,
                                None::<&Path>));
         try!(nix::unistd::chdir(self.root.as_path()));
         try!(nix::unistd::pivot_root(".", "."));
 
         // unmount old root
-	// Now the old root is mounted on top of the new root. Use fchdir(2) to
-	// change to the old root and unmount it.
+        // Now the old root is mounted on top of the new root. Use fchdir(2) to
+        // change to the old root and unmount it.
         try!(old_root.chdir());
-	// The old root might be busy, so use lazy unmount.
+        // The old root might be busy, so use lazy unmount.
         try!(nix::mount::umount2(".", MNT_DETACH));
 
         // Change back to the new root.
@@ -118,7 +129,7 @@ impl MountNamespace {
         drop(new_root);
 
         try!(nix::unistd::chroot("/"));
-	// Set correct CWD for getcwd(3).
+        // Set correct CWD for getcwd(3).
         try!(nix::unistd::chdir("/"));
 
         Ok(())
@@ -127,8 +138,11 @@ impl MountNamespace {
     // Remount everything as private so new mounts and unmounts don't propagate
     // to the parent's namespace.
     fn remount_private(&self) -> nix::Result<()> {
-        nix::mount::mount(None::<&Path>, "/", None::<&Path>,
-                          MS_REC | MS_PRIVATE, None::<&Path>)
+        nix::mount::mount(None::<&Path>,
+                          "/",
+                          None::<&Path>,
+                          MS_REC | MS_PRIVATE,
+                          None::<&Path>)
     }
 }
 
@@ -163,15 +177,16 @@ mod test {
     fn invalid_target() {
         let root_dir = TempDir::new("two_mount_test").unwrap();
         let root_path = root_dir.into_path();
-	let tmp_dir = TempDir::new("/tmp/one").unwrap();
-	let source = tmp_dir.into_path();
+        let tmp_dir = TempDir::new("/tmp/one").unwrap();
+        let source = tmp_dir.into_path();
 
         let target = PathBuf::from("/one"); // Invalid absolute path
         let fstype = None;
         let options = Vec::new();
 
         let mut m = MountNamespace::new(root_path);
-        assert_eq!(m.add_mount(Some(source), target, fstype, MS_BIND, options).is_ok(), false);
+        assert_eq!(m.add_mount(Some(source), target, fstype, MS_BIND, options).is_ok(),
+                   false);
     }
 
     #[test]
@@ -184,26 +199,30 @@ mod test {
         // it goes out of scope, after the child exits and unmounts everyuthing.
         let root_dir = TempDir::new("two_mount_test").unwrap();
         let root_path = root_dir.path();
-	let tmp_dir = TempDir::new("/tmp/one").unwrap();
-	let source = tmp_dir.path();
+        let tmp_dir = TempDir::new("/tmp/one").unwrap();
+        let source = tmp_dir.path();
 
         let pid = clone(Box::new(move || {
-                let target = PathBuf::from("one");
-                let fstype = None;
-                let options = Vec::new();
+            let target = PathBuf::from("one");
+            let fstype = None;
+            let options = Vec::new();
 
-                let target2 = PathBuf::from("two");
-                let fstype2 = Some("tmpfs".to_string());
-                let options2 = Vec::new();
+            let target2 = PathBuf::from("two");
+            let fstype2 = Some("tmpfs".to_string());
+            let options2 = Vec::new();
 
-                let mut m = MountNamespace::new(root_path.to_path_buf());
-                m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options).unwrap();
-                m.add_mount(None, target2, fstype2, MS_REC, options2).unwrap();
-                assert_eq!(m.enter().is_ok(), true);
-                assert!(PathBuf::from("/one").exists());
-                assert!(PathBuf::from("/two").exists());
-                0
-            }), &mut stack, CLONE_NEWUSER, None).unwrap();
+            let mut m = MountNamespace::new(root_path.to_path_buf());
+            m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options).unwrap();
+            m.add_mount(None, target2, fstype2, MS_REC, options2).unwrap();
+            assert_eq!(m.enter().is_ok(), true);
+            assert!(PathBuf::from("/one").exists());
+            assert!(PathBuf::from("/two").exists());
+            0
+        }),
+                        &mut stack,
+                        CLONE_NEWUSER,
+                        None)
+            .unwrap();
         wait_child_exit(pid);
     }
 
@@ -216,17 +235,21 @@ mod test {
 
         let pid = clone(Box::new(move || {
 
-                let source = PathBuf::from("tmpfssrc");
-                let target = PathBuf::from("tmpfs");
-                let fstype = Some("tmpfs".to_string());
-                let options = vec![ "size=16k".to_owned() ];
+            let source = PathBuf::from("tmpfssrc");
+            let target = PathBuf::from("tmpfs");
+            let fstype = Some("tmpfs".to_string());
+            let options = vec!["size=16k".to_owned()];
 
-                let mut m = MountNamespace::new(root_path.to_path_buf());
-                m.add_mount(Some(source), target, fstype, MS_REC, options).unwrap();
-                assert_eq!(m.enter().is_ok(), true);
-                assert!(PathBuf::from("/tmpfs").exists());
-                0
-            }), &mut stack, CLONE_NEWUSER, None).unwrap();
+            let mut m = MountNamespace::new(root_path.to_path_buf());
+            m.add_mount(Some(source), target, fstype, MS_REC, options).unwrap();
+            assert_eq!(m.enter().is_ok(), true);
+            assert!(PathBuf::from("/tmpfs").exists());
+            0
+        }),
+                        &mut stack,
+                        CLONE_NEWUSER,
+                        None)
+            .unwrap();
         wait_child_exit(pid);
     }
 }
