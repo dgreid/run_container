@@ -12,6 +12,7 @@ mod oci_config;
 use container::container::Container;
 use container::mount_namespace::*;
 use container::net_namespace::EmptyNetNamespace;
+use container::seccomp_jail::{ self, SeccompConfig, SeccompJail };
 use container::user_namespace::UserNamespace;
 
 use self::nix::mount::*;
@@ -33,6 +34,7 @@ pub enum ContainerConfigError {
     MountError(MountError),
     ConfigParseError,
     NoLinuxNodeFoundError,
+    SeccompError(seccomp_jail::Error),
 }
 
 impl From<io::Error> for ContainerConfigError {
@@ -50,6 +52,12 @@ impl From<MountError> for ContainerConfigError {
 impl From<serde_json::Error> for ContainerConfigError {
     fn from(_: serde_json::Error) -> ContainerConfigError {
         ContainerConfigError::ConfigParseError
+    }
+}
+
+impl From<seccomp_jail::Error> for ContainerConfigError {
+    fn from(err: seccomp_jail::Error) -> ContainerConfigError {
+        ContainerConfigError::SeccompError(err)
     }
 }
 
@@ -83,8 +91,13 @@ fn container_from_oci(config: OciConfig, bind_mounts: Vec<(String, String)>,
     //TODO(dgreid) - Parse net namespace config.
     let net_ns = Box::new(EmptyNetNamespace::new());
 
+    let seccomp_jail = match linux.seccomp {
+        Some(s) => Some(seccomp_jail_from_oci(s)?),
+        None => None,
+    };
+
     Ok(Container::new(config.hostname.unwrap_or("??".to_string()).as_str(),
-                      argv, None, mnt_ns, net_ns, user_ns))
+                      argv, None, mnt_ns, net_ns, user_ns, seccomp_jail))
 }
 
 fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
@@ -158,6 +171,24 @@ fn user_ns_from_oci(uid_maps: Option<Vec<OciLinuxNamespaceMapping>>,
                                 getgid() as usize, 1);
     }
     user_ns
+}
+
+fn seccomp_jail_from_oci(oci_seccomp: OciSeccomp)
+        -> Result<SeccompJail, ContainerConfigError> {
+    let mut seccomp_config = SeccompConfig::new(&oci_seccomp.default_action)?;
+    for syscall in oci_seccomp.syscalls {
+        if let Some(args) = syscall.args {
+            for arg in args {
+                seccomp_config.add_rule(&syscall.name, &syscall.action,
+                                        Some(arg.index), Some(arg.value),
+                                        Some(arg.value2), Some(&arg.op))?;
+            }
+        } else {
+            seccomp_config.add_rule(&syscall.name, &syscall.action,
+                                    None, None, None, None)?;
+        }
+    }
+    Ok(SeccompJail::new(&seccomp_config)?)
 }
 
 #[cfg(test)]

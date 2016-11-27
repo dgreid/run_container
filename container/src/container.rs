@@ -4,6 +4,8 @@ use cgroup_namespace::{self, CGroupNamespace};
 use mount_namespace::*;
 use net_namespace;
 use net_namespace::NetNamespace;
+use seccomp_jail;
+use seccomp_jail::SeccompJail;
 use sync_pipe::*;
 use syscall_defines::linux::LinuxSyscall::*;
 use user_namespace::UserNamespace;
@@ -24,6 +26,7 @@ pub struct Container {
     mount_namespace: MountNamespace,
     user_namespace: UserNamespace,
     net_namespace: Box<NetNamespace>,
+    seccomp_jail: Option<SeccompJail>,
     pid: pid_t,
 }
 
@@ -35,6 +38,7 @@ pub enum ContainerError {
     InvalidMountTarget,
     NetworkNamespaceConfigError,
     CGroupCreateError,
+    SeccompError(seccomp_jail::Error),
 }
 
 impl From<nix::Error> for ContainerError {
@@ -80,12 +84,19 @@ impl From<cgroup_namespace::Error> for ContainerError {
     }
 }
 
+impl From<seccomp_jail::Error> for ContainerError {
+    fn from(err: seccomp_jail::Error) -> ContainerError {
+        ContainerError::SeccompError(err)
+    }
+}
+
 impl Container {
     pub fn new(name: &str, argv: Vec<CString>,
                cgroup_namespace: Option<CGroupNamespace>,
                mount_namespace: MountNamespace,
 	       net_namespace: Box<NetNamespace>,
-               user_namespace: UserNamespace) -> Self {
+               user_namespace: UserNamespace,
+               seccomp_jail: Option<SeccompJail>) -> Self {
         Container {
             name: name.to_string(),
             argv: argv,
@@ -93,6 +104,7 @@ impl Container {
             mount_namespace: mount_namespace,
             net_namespace: net_namespace,
             user_namespace: user_namespace,
+            seccomp_jail: seccomp_jail,
             pid: 0,
         }
     }
@@ -121,6 +133,9 @@ impl Container {
           try!(cgroup_namespace.enter());
         }
         try!(self.mount_namespace.enter());
+        if let Some(ref seccomp_jail) = self.seccomp_jail {
+            seccomp_jail.enter()?;
+        }
         Ok(())
     }
 
@@ -207,6 +222,8 @@ mod test {
     use cgroup_namespace::*;
     use mount_namespace::*;
     use net_namespace::EmptyNetNamespace;
+    use seccomp_jail::SeccompConfig;
+    use seccomp_jail::SeccompJail;
     use std::path::Path;
     use std::path::PathBuf;
     use std::ffi::CString;
@@ -243,11 +260,14 @@ mod test {
         let cgroup_namespace = setup_cgroups(&temp_cgdir);
         let mount_namespace = MountNamespace::new(PathBuf::from("/tmp/foo"));
         let mut user_namespace = UserNamespace::new();
+        let seccomp_config = SeccompConfig::new("SCMP_ACT_ALLOW").unwrap();
+        let seccomp_jail = SeccompJail::new(&seccomp_config).unwrap();
         user_namespace.add_uid_mapping(0, getuid() as usize, 1);
         user_namespace.add_gid_mapping(0, getgid() as usize, 1);
 	// TODO(dgreid) - add test with each network namespace
         let mut c = Container::new("asdf", argv, Some(cgroup_namespace), mount_namespace,
-                                   Box::new(EmptyNetNamespace::new()), user_namespace);
+                                   Box::new(EmptyNetNamespace::new()), user_namespace,
+                                   Some(seccomp_jail));
 	assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());
         assert!(c.wait().is_ok());
