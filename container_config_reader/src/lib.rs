@@ -16,6 +16,7 @@ use container::user_namespace::UserNamespace;
 
 use self::nix::mount::*;
 use self::nix::unistd::getuid;
+use self::nix::unistd::getgid;
 
 use std::io;
 use std::io::BufReader;
@@ -31,6 +32,7 @@ pub enum ContainerConfigError {
     Io(io::Error),
     MountError(MountError),
     ConfigParseError,
+    NoLinuxNodeFoundError,
 }
 
 impl From<io::Error> for ContainerConfigError {
@@ -66,28 +68,14 @@ fn container_from_oci(config: OciConfig, bind_mounts: Vec<(String, String)>,
         -> Result<Container, ContainerConfigError> {
     let mut root_path = PathBuf::from(path);
     root_path.push(&config.root.path);
+
     let mnt_ns = mount_ns_from_oci(config.mounts, bind_mounts, root_path)?;
-    let mut user_ns = UserNamespace::new();
-    if let Some(linux) = config.linux {
-        if let Some(uid_mappings) = linux.uid_mappings {
-            for id_map in uid_mappings {
-                user_ns.add_uid_mapping(id_map.container_id as usize,
-                                        id_map.host_id as usize,
-                                        id_map.size as usize);
-            }
-        } else {
-            // Default map the current user to the uid the process will run as.
-            user_ns.add_uid_mapping(config.process.user.uid as usize,
-                                    getuid() as usize, 1);
-        }
-        if let Some(gid_mappings) = linux.gid_mappings {
-            for id_map in gid_mappings {
-                user_ns.add_gid_mapping(id_map.container_id as usize,
-                                        id_map.host_id as usize,
-                                        id_map.size as usize);
-            }
-        }
-    }
+
+    let linux = config.linux.ok_or(ContainerConfigError::NoLinuxNodeFoundError)?;
+    let user_ns = user_ns_from_oci(linux.uid_mappings, linux.gid_mappings,
+                                   config.process.user.uid,
+                                   config.process.user.gid);
+
     let argv = config.process.args.into_iter()
                     .map(|a| CString::new(a.as_str()).unwrap())
                     .collect();
@@ -140,6 +128,36 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
     try!(mnt_ns.add_mount(None, PathBuf::from("sys"), Some("sysfs".to_string()),
                           MsFlags::empty(), Vec::new()));
     Ok(mnt_ns)
+}
+
+fn user_ns_from_oci(uid_maps: Option<Vec<OciLinuxNamespaceMapping>>,
+                    gid_maps: Option<Vec<OciLinuxNamespaceMapping>>,
+                    uid: u32, gid: u32) -> UserNamespace {
+    let mut user_ns = UserNamespace::new();
+    if let Some(uid_mappings) = uid_maps {
+        for id_map in uid_mappings {
+            user_ns.add_uid_mapping(id_map.container_id as usize,
+                                    id_map.host_id as usize,
+                                    id_map.size as usize);
+        }
+    } else {
+        // Default map the current user to the uid the process will run as.
+        user_ns.add_uid_mapping(uid as usize,
+                                getuid() as usize, 1);
+    }
+
+    if let Some(gid_mappings) = gid_maps {
+        for id_map in gid_mappings {
+            user_ns.add_gid_mapping(id_map.container_id as usize,
+                                    id_map.host_id as usize,
+                                    id_map.size as usize);
+        }
+    } else {
+        // Default map the current group to the gid the process will run as.
+        user_ns.add_gid_mapping(gid as usize,
+                                getgid() as usize, 1);
+    }
+    user_ns
 }
 
 #[cfg(test)]
