@@ -66,43 +66,7 @@ fn container_from_oci(config: OciConfig, bind_mounts: Vec<(String, String)>,
         -> Result<Container, ContainerConfigError> {
     let mut root_path = PathBuf::from(path);
     root_path.push(&config.root.path);
-    let mut mnt_ns = MountNamespace::new(root_path);
-    if let Some(mounts) = config.mounts {
-        for m in mounts.into_iter() {
-            // TODO - parse options in ocimount
-            let mut flags = MsFlags::empty();
-            let mut options = Vec::new();
-            if let Some(mnt_opts) = m.options {
-                for opt in mnt_opts.into_iter() {
-                    match opt.as_ref() {
-                        "bind" => flags.insert(MS_BIND),
-                        "noatime" => flags.insert(MS_NOATIME),
-                        "nodev" => flags.insert(MS_NODEV),
-                        "nodiratime" => flags.insert(MS_NODIRATIME),
-                        "noexec" => flags.insert(MS_NOEXEC),
-                        "nosuid" => flags.insert(MS_NOSUID),
-                        "recursive" => flags.insert(MS_REC),
-                        "relatime" => flags.insert(MS_RELATIME),
-                        "remount" => flags.insert(MS_REMOUNT),
-                        "ro" => flags.insert(MS_RDONLY),
-                        "strictatime" => flags.insert(MS_STRICTATIME),
-                        _ => options.push(opt),
-                    }
-                }
-            }
-            try!(mnt_ns.add_mount(Some(PathBuf::from(&m.source)),
-                                  PathBuf::from(&m.destination.trim_left_matches('/')),
-                                  Some(m.mount_type), flags, options));
-        }
-    }
-    for m in bind_mounts {
-        try!(mnt_ns.add_mount(Some(PathBuf::from(m.0)),
-			      PathBuf::from(m.1.trim_matches('/')), None,
-                              MS_BIND, Vec::new()));
-    }
-    // Always mount sysfs.
-    try!(mnt_ns.add_mount(None, PathBuf::from("sys"), Some("sysfs".to_string()), MsFlags::empty(),
-                          Vec::new()));
+    let mnt_ns = mount_ns_from_oci(config.mounts, bind_mounts, root_path)?;
     let mut user_ns = UserNamespace::new();
     if let Some(linux) = config.linux {
         if let Some(uid_mappings) = linux.uid_mappings {
@@ -133,6 +97,49 @@ fn container_from_oci(config: OciConfig, bind_mounts: Vec<(String, String)>,
 
     Ok(Container::new(config.hostname.unwrap_or("??".to_string()).as_str(),
                       argv, None, mnt_ns, net_ns, user_ns))
+}
+
+fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
+                     bind_mounts: Vec<(String, String)>,
+                     root_path: PathBuf)
+        -> Result<MountNamespace, ContainerConfigError> {
+    let mut mnt_ns = MountNamespace::new(root_path);
+    if let Some(mounts) = mounts_vec {
+        for m in mounts.into_iter() {
+            let mut flags = MsFlags::empty();
+            let mut options = Vec::new();
+            if let Some(mnt_opts) = m.options {
+                for opt in mnt_opts.into_iter() {
+                    match opt.as_ref() {
+                        "bind" => flags.insert(MS_BIND),
+                        "noatime" => flags.insert(MS_NOATIME),
+                        "nodev" => flags.insert(MS_NODEV),
+                        "nodiratime" => flags.insert(MS_NODIRATIME),
+                        "noexec" => flags.insert(MS_NOEXEC),
+                        "nosuid" => flags.insert(MS_NOSUID),
+                        "recursive" => flags.insert(MS_REC),
+                        "relatime" => flags.insert(MS_RELATIME),
+                        "remount" => flags.insert(MS_REMOUNT),
+                        "ro" => flags.insert(MS_RDONLY),
+                        "strictatime" => flags.insert(MS_STRICTATIME),
+                        _ => options.push(opt.to_string()),
+                    }
+                }
+            }
+            try!(mnt_ns.add_mount(Some(PathBuf::from(&m.source)),
+                                  PathBuf::from(&m.destination.trim_left_matches('/')),
+                                  Some(m.mount_type), flags, options));
+        }
+    }
+    for m in bind_mounts {
+        try!(mnt_ns.add_mount(Some(PathBuf::from(m.0)),
+			      PathBuf::from(m.1.trim_matches('/')), None,
+                              MS_BIND, Vec::new()));
+    }
+    // Always mount sysfs.
+    try!(mnt_ns.add_mount(None, PathBuf::from("sys"), Some("sysfs".to_string()),
+                          MsFlags::empty(), Vec::new()));
+    Ok(mnt_ns)
 }
 
 #[cfg(test)]
