@@ -209,8 +209,6 @@ fn main() {
         c.set_user_namespace(user_ns);
     }
 
-    println!("starting {}", c.name());
     c.start().unwrap();
     c.wait().unwrap();
-    println!("done");
 }
