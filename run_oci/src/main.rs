@@ -34,8 +34,8 @@ impl CommandOptions {
         let mut opts = getopts::Options::new();
         opts.optmulti("b",
                       "bind_mount",
-                      "<external dir>:<internal dir> - Add a bind mount from external to internal",
-                      "NAME");
+                      "Add a bind mount from external to internal",
+                      "<external dir>:<internal dir>");
         opts.optopt("c", "cgroup_name", "Name to give the cgroup", "NAME");
         opts.optopt("d",
                     "bridge_device",
