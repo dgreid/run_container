@@ -1,5 +1,7 @@
 extern crate nix;
 
+use syscall_defines::linux::LinuxSyscall::*;
+
 use self::nix::fcntl::*;
 use std::path::Path;
 
@@ -19,9 +21,7 @@ impl OpenDir {
 
     pub fn chdir(&self) -> Result<(), nix::Error> {
         unsafe {
-            // TODO(dgreid) - hard coded x86_64 syscall value for fchdir
-            //   Add fchdir to libc and nix
-            if nix::sys::syscall::syscall(81, self.fd) < 0 {
+            if nix::sys::syscall::syscall(SYS_fchdir as i64, self.fd) < 0 {
                 Err(nix::Error::Sys(nix::Errno::UnknownErrno))
             } else {
                 Ok(())
