@@ -30,7 +30,7 @@ struct CommandOptions {
 //  # run_oci -n bridge --bridged_ip 10.1.1.2/24 --bridge_device veth1 --bridge_name br0 --masquerade_ip 10.1.1.1 /containers/busybox/
 
 impl CommandOptions {
-    pub fn new(argv: &Vec<String>) -> Result<CommandOptions, ()> {
+    fn build_opts() -> getopts::Options {
         let mut opts = getopts::Options::new();
         opts.optmulti("b",
                       "bind_mount",
@@ -67,13 +67,16 @@ impl CommandOptions {
                     "NAME");
         opts.optflag("u", "use_current_user", "Map the current user/group only");
 
-        let matches = match opts.parse(&argv[1..]) {
-            Ok(m) => m,
-            Err(_) => {
+        opts
+    }
+
+    pub fn new(argv: &Vec<String>) -> Result<CommandOptions, ()> {
+        let opts = CommandOptions::build_opts();
+
+        let matches = opts.parse(&argv[1..]).map_err(|_| {
                 CommandOptions::print_usage(&argv[0], &opts);
-                return Err(());
-            }
-        };
+                ()
+            })?;
 
         if matches.free.len() != 1 {
             CommandOptions::print_usage(&argv[0], &opts);
