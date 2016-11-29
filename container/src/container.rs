@@ -135,6 +135,7 @@ impl Container {
             try!(cgroup_namespace.enter());
         }
         try!(self.mount_namespace.enter());
+        nix::unistd::sethostname(self.name.as_bytes())?;
         if let Some(ref seccomp_jail) = self.seccomp_jail {
             seccomp_jail.enter()?;
         }
