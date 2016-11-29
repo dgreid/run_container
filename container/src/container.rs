@@ -128,22 +128,18 @@ impl Container {
     }
 
     fn enter_jail(&self) -> Result<(), ContainerError> {
-        try!(nix::unistd::setresuid(0, 0, 0));
-        try!(nix::unistd::setresgid(0, 0, 0));
-        try!(self.net_namespace.configure_in_child());
-        if let Some(ref cgroup_namespace) = self.cgroup_namespace {
-            try!(cgroup_namespace.enter());
-        }
-        try!(self.mount_namespace.enter());
+        nix::unistd::setresuid(0, 0, 0)?;
+        nix::unistd::setresgid(0, 0, 0)?;
+        self.net_namespace.configure_in_child()?;
+        self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
+        self.mount_namespace.enter()?;
         nix::unistd::sethostname(self.name.as_bytes())?;
-        if let Some(ref seccomp_jail) = self.seccomp_jail {
-            seccomp_jail.enter()?;
-        }
+        self.seccomp_jail.as_ref().map_or(Ok(()), |s| s.enter())?;
         Ok(())
     }
 
     fn do_clone() -> Result<pid_t, nix::Error> {
-        try!(nix::unistd::setpgid(0, 0));
+        nix::unistd::setpgid(0, 0)?;
 
         unsafe {
             let clone_flags = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS |
@@ -161,27 +157,27 @@ impl Container {
     }
 
     pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), ContainerError> {
-        let mut uid_file = try!(fs::OpenOptions::new()
+        let mut uid_file = fs::OpenOptions::new()
             .write(true)
             .read(false)
             .create(false)
-            .open(format!("/proc/{}/uid_map", self.pid)));
-        let mut gid_file = try!(fs::OpenOptions::new()
+            .open(format!("/proc/{}/uid_map", self.pid))?;
+        let mut gid_file = fs::OpenOptions::new()
             .write(true)
             .read(false)
             .create(false)
-            .open(format!("/proc/{}/gid_map", self.pid)));
-        try!(uid_file.write_all(self.user_namespace.uid_config_string().as_bytes()));
-        try!(gid_file.write_all(self.user_namespace.gid_config_string().as_bytes()));
+            .open(format!("/proc/{}/gid_map", self.pid))?;
+        uid_file.write_all(self.user_namespace.uid_config_string().as_bytes())?;
+        gid_file.write_all(self.user_namespace.gid_config_string().as_bytes())?;
         drop(uid_file);
         drop(gid_file); // ick, but dropping the file causes a flush.
 
-        try!(self.net_namespace.configure_for_pid(self.pid));
+        self.net_namespace.configure_for_pid(self.pid)?;
         if let Some(ref mut cgroup_namespace) = self.cgroup_namespace {
-            try!(cgroup_namespace.join_cgroups(self.pid));
+            cgroup_namespace.join_cgroups(self.pid)?;
         }
 
-        try!(sync_pipe.signal());
+        sync_pipe.signal()?;
         Ok(())
     }
 
@@ -194,9 +190,9 @@ impl Container {
     }
 
     pub fn start(&mut self) -> Result<(), ContainerError> {
-        let sync_pipe = try!(SyncPipe::new());
+        let sync_pipe = SyncPipe::new()?;
 
-        let pid = try!(Container::do_clone());
+        let pid = Container::do_clone()?;
         match pid {
             0 => {
                 // child
@@ -205,7 +201,7 @@ impl Container {
             _ => {
                 // parent
                 self.pid = pid;
-                try!(self.parent_setup(sync_pipe));
+                self.parent_setup(sync_pipe)?;
             }
         }
         Ok(())

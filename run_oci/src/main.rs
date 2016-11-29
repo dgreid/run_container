@@ -78,7 +78,7 @@ impl CommandOptions {
                 ()
             })?;
 
-        if matches.free.len() != 1 {
+        if matches.free.len() == 0 {
             CommandOptions::print_usage(&argv[0], &opts);
             return Err(());
         }
