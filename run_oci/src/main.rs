@@ -125,11 +125,11 @@ impl CommandOptions {
             CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
                                  Path::new(&cgroup_parent),
                                  Path::new(&cgroup_name))
-                .map_or_else(|| {
+                .map_err(|_| {
                                  println!("Cgroup setup failure.");
-                                 Err(())
-                             },
-                             |c| Ok(Some(c)))
+                                 ()
+                             })
+                .map(|c| Some(c))
         })
     }
 
