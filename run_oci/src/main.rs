@@ -30,7 +30,7 @@ struct CommandOptions {
 //  # run_oci -n bridge --bridged_ip 10.1.1.2/24 --bridge_device veth1 --bridge_name br0 --masquerade_ip 10.1.1.1 /containers/busybox/
 
 impl CommandOptions {
-    pub fn new(argv: &Vec<String>) -> Option<CommandOptions> {
+    pub fn new(argv: &Vec<String>) -> Result<CommandOptions, ()> {
         let mut opts = getopts::Options::new();
         opts.optmulti("b",
                       "bind_mount",
@@ -71,15 +71,69 @@ impl CommandOptions {
             Ok(m) => m,
             Err(_) => {
                 CommandOptions::print_usage(&argv[0], &opts);
-                return None;
+                return Err(());
             }
         };
 
         if matches.free.len() != 1 {
             CommandOptions::print_usage(&argv[0], &opts);
-            return None;
+            return Err(());
         }
 
+        let bind_mounts = CommandOptions::bind_mounts_from_opts(&matches).map_err(|_| {
+                CommandOptions::print_usage(&argv[0], &opts);
+                ()
+            })?;
+
+        let net_ns = CommandOptions::net_ns_from_opts(&matches).map_err(|_| {
+                CommandOptions::print_usage(&argv[0], &opts);
+                ()
+            })?;
+
+        let cgroup_ns = CommandOptions::cgroup_ns_from_opts(&matches).map_err(|_| {
+                CommandOptions::print_usage(&argv[0], &opts);
+                ()
+            })?;
+
+        Ok(CommandOptions {
+            cgroup_ns: cgroup_ns,
+            container_path: Some(PathBuf::from(&matches.free[0])),
+            net_ns: Some(net_ns),
+            bind_mounts: Some(bind_mounts),
+            use_configured_users: !matches.opt_present("u"),
+        })
+    }
+
+    fn bind_mounts_from_opts(matches: &getopts::Matches) -> Result<Vec<(String, String)>, ()> {
+        let mut bind_mounts = Vec::new();
+        for mount in matches.opt_strs("b").into_iter() {
+            let dirs: Vec<&str> = mount.split(":").collect();
+            if dirs.len() != 2 {
+                println!("Invalid bind mount specified: {}", mount);
+                return Err(());
+            }
+            bind_mounts.push((dirs[0].to_string(), dirs[1].to_string()));
+        }
+        Ok(bind_mounts)
+    }
+
+    fn cgroup_ns_from_opts(matches: &getopts::Matches) -> Result<Option<CGroupNamespace>, ()> {
+        // Cgroup parent is optional.
+        let cgroup_parent = matches.opt_str("p").unwrap_or("".to_string());
+        // Cgroups are optional, only do setup if name is given.
+        matches.opt_str("c").map_or(Ok(None), |cgroup_name| {
+            CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
+                                 Path::new(&cgroup_parent),
+                                 Path::new(&cgroup_name))
+                .map_or_else(|| {
+                                 println!("Cgroup setup failure.");
+                                 Err(())
+                             },
+                             |c| Ok(Some(c)))
+        })
+    }
+
+    fn net_ns_from_opts(matches: &getopts::Matches) -> Result<Box<NetNamespace>, ()> {
         let bridge_name = matches.opt_str("r");
         let bridge_device = matches.opt_str("d");
         let bridged_ip = matches.opt_str("i");
@@ -89,77 +143,35 @@ impl CommandOptions {
             masquerade_devices.push(dev);
         }
 
-        let mut bind_mounts = Vec::new();
-        for mount in matches.opt_strs("b").into_iter() {
-            let dirs: Vec<&str> = mount.split(":").collect();
-            if dirs.len() != 2 {
-                println!("Invalid bind mount specified");
-                CommandOptions::print_usage(&argv[0], &opts);
-                return None;
-            }
-            bind_mounts.push((dirs[0].to_string(), dirs[1].to_string()));
-        }
-
-        let mut net_ns: Option<Box<NetNamespace>> = Some(Box::new(EmptyNetNamespace::new()));
-        if let Some(n) = matches.opt_str("n") {
+        matches.opt_str("n").map_or(Ok(Box::new(EmptyNetNamespace::new())), |n| {
             match n.as_ref() {
-                "empty" => {
-                    // Default
-                }
+                "empty" => Ok(Box::new(EmptyNetNamespace::new())),
                 "bridge" => {
                     if bridge_name.is_none() || bridge_device.is_none() {
-                        CommandOptions::print_usage(&argv[0], &opts);
                         println!("bridge_name and bride_device are required");
-                        return None;
+                        return Err(());
                     }
                     if bridged_ip.is_none() || masquerade_ip.is_none() {
-                        CommandOptions::print_usage(&argv[0], &opts);
                         println!("bridge_ip, and masquerate_ip are required");
-                        return None;
+                        return Err(());
                     }
-                    net_ns = Some(Box::new(BridgedNetNamespace::new(bridge_name.unwrap(),
-                                                                    bridge_device.unwrap(),
-                                                                    masquerade_ip.unwrap(),
-                                                                    bridged_ip.unwrap())))
+                    Ok(Box::new(BridgedNetNamespace::new(bridge_name.unwrap(),
+                                                         bridge_device.unwrap(),
+                                                         masquerade_ip.unwrap(),
+                                                         bridged_ip.unwrap())))
                 }
                 "masquerade" => {
                     if masquerade_devices.is_empty() || masquerade_ip.is_none() {
                         println!("A device and IP are required for masquerade networking");
-                        CommandOptions::print_usage(&argv[0], &opts);
-                        return None;
+                        return Err(());
                     }
-                    net_ns = Some(Box::new(NatNetNamespace::new(masquerade_devices,
-                                                                masquerade_ip.unwrap())))
+                    Ok(Box::new(NatNetNamespace::new(masquerade_devices, masquerade_ip.unwrap())))
                 }
                 _ => {
                     println!("Invalid network type");
-                    CommandOptions::print_usage(&argv[0], &opts);
-                    return None;
+                    return Err(());
                 }
             }
-        }
-
-        let cgroup_parent = matches.opt_str("p").unwrap_or("".to_string());
-        let cgroup_name = matches.opt_str("c");
-        let cgroup_ns = if cgroup_name.is_some() {
-            let cgns = CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
-                                            Path::new(&cgroup_parent),
-                                            Path::new(&cgroup_name.unwrap()));
-            if cgns.is_none() {
-                println!("cgroup setup error");
-                return None;
-            }
-            cgns
-        } else {
-            None
-        };
-
-        Some(CommandOptions {
-            cgroup_ns: cgroup_ns,
-            container_path: Some(PathBuf::from(&matches.free[0])),
-            net_ns: net_ns,
-            bind_mounts: Some(bind_mounts),
-            use_configured_users: !matches.opt_present("u"),
         })
     }
 
@@ -192,8 +204,8 @@ impl CommandOptions {
 fn main() {
     let argv: Vec<String> = env::args().collect();
     let mut cmd_opts = match CommandOptions::new(&argv) {
-        Some(c) => c,
-        None => return,
+        Ok(c) => c,
+        Err(()) => return,
     };
 
     let mut c = container_from_oci_config(&cmd_opts.get_container_path(),
