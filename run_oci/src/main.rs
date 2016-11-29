@@ -17,6 +17,7 @@ use std::path::PathBuf;
 struct CommandOptions {
     cgroup_ns: Option<CGroupNamespace>,
     container_path: Option<PathBuf>,
+    extra_argv: Vec<String>,
     net_ns: Option<Box<NetNamespace>>,
     bind_mounts: Option<Vec<(String, String)>>,
     use_configured_users: bool,
@@ -73,7 +74,7 @@ impl CommandOptions {
     pub fn new(argv: &Vec<String>) -> Result<CommandOptions, ()> {
         let opts = CommandOptions::build_opts();
 
-        let matches = opts.parse(&argv[1..]).map_err(|_| {
+        let mut matches = opts.parse(&argv[1..]).map_err(|_| {
                 CommandOptions::print_usage(&argv[0], &opts);
                 ()
             })?;
@@ -101,6 +102,7 @@ impl CommandOptions {
         Ok(CommandOptions {
             cgroup_ns: cgroup_ns,
             container_path: Some(PathBuf::from(&matches.free[0])),
+            extra_argv: matches.free.split_off(1),
             net_ns: Some(net_ns),
             bind_mounts: Some(bind_mounts),
             use_configured_users: !matches.opt_present("u"),
@@ -202,6 +204,10 @@ impl CommandOptions {
     pub fn get_bind_mounts(&mut self) -> Vec<(String, String)> {
         self.bind_mounts.take().unwrap()
     }
+
+    pub fn get_extra_args(&self) -> &Vec<String> {
+        &self.extra_argv
+    }
 }
 
 fn main() {
@@ -223,6 +229,7 @@ fn main() {
         user_ns.add_gid_mapping(0, getgid() as usize, 1);
         c.set_user_namespace(user_ns);
     }
+    c.append_args(cmd_opts.get_extra_args());
 
     c.start().unwrap();
     c.wait().unwrap();

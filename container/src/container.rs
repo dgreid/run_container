@@ -123,6 +123,12 @@ impl Container {
         self.user_namespace = user_namespace;
     }
 
+    pub fn append_args(&mut self, args: &Vec<String>) {
+        for ref string_arg in args {
+            self.argv.push(CString::new(string_arg.as_str()).unwrap());
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
