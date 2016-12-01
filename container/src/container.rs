@@ -21,6 +21,7 @@ use std::io::Write;
 
 pub struct Container {
     name: String,
+    alt_syscall_table: Option<CString>,
     argv: Vec<CString>,
     cgroup_namespace: Option<CGroupNamespace>,
     mount_namespace: MountNamespace,
@@ -38,6 +39,7 @@ pub enum ContainerError {
     InvalidMountTarget,
     NetworkNamespaceConfigError,
     CGroupCreateError,
+    AltSyscallError,
     SeccompError(seccomp_jail::Error),
 }
 
@@ -101,6 +103,7 @@ impl Container {
                -> Self {
         Container {
             name: name.to_string(),
+            alt_syscall_table: None,
             argv: argv,
             cgroup_namespace: cgroup_namespace,
             mount_namespace: mount_namespace,
@@ -129,8 +132,26 @@ impl Container {
         }
     }
 
+    pub fn set_alt_syscall_table(&mut self, table: &str) {
+        self.alt_syscall_table = CString::new(table).ok();
+    }
+
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    fn enter_alt_syscall_table(&self) -> Result<(), ContainerError> {
+        self.alt_syscall_table.as_ref().map_or(Ok(()), |t| {
+            unsafe {
+                match nix::sys::syscall::syscall(SYS_prctl as i64,
+                                                 0x43724f53, // PR_ALT_SYSCALL
+                                                 1,
+                                                 t.as_ptr()) {
+                    0 => Ok(()),
+                    _ => Err(ContainerError::AltSyscallError),
+                }
+            }
+        })
     }
 
     fn enter_jail(&self) -> Result<(), ContainerError> {
@@ -140,6 +161,7 @@ impl Container {
         self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
         self.mount_namespace.enter()?;
         nix::unistd::sethostname(self.name.as_bytes())?;
+        self.enter_alt_syscall_table()?;
         self.seccomp_jail.as_ref().map_or(Ok(()), |s| s.enter())?;
         Ok(())
     }
