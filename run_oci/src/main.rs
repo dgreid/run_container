@@ -15,6 +15,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 struct CommandOptions {
+    alt_syscall_table: Option<String>,
     cgroup_ns: Option<CGroupNamespace>,
     container_path: Option<PathBuf>,
     extra_argv: Vec<String>,
@@ -66,6 +67,7 @@ impl CommandOptions {
                     "bridge_name",
                     "If network is bridged, the bridge to use",
                     "NAME");
+        opts.optopt("s", "alt_syscall", "Use the given alt-syscall table", "TABLE_NAME");
         opts.optflag("u", "use_current_user", "Map the current user/group only");
 
         opts
@@ -100,6 +102,7 @@ impl CommandOptions {
             })?;
 
         Ok(CommandOptions {
+            alt_syscall_table: matches.opt_str("s"),
             cgroup_ns: cgroup_ns,
             container_path: Some(PathBuf::from(&matches.free[0])),
             extra_argv: matches.free.split_off(1),
@@ -230,6 +233,7 @@ fn main() {
         c.set_user_namespace(user_ns);
     }
     c.append_args(cmd_opts.get_extra_args());
+    cmd_opts.alt_syscall_table.map(|t| c.set_alt_syscall_table(&t));
 
     c.start().unwrap();
     c.wait().unwrap();
