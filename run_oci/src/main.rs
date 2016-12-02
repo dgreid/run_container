@@ -68,7 +68,10 @@ impl CommandOptions {
                     "bridge_name",
                     "If network is bridged, the bridge to use",
                     "NAME");
-        opts.optopt("s", "alt_syscall", "Use the given alt-syscall table", "TABLE_NAME");
+        opts.optopt("s",
+                    "alt_syscall",
+                    "Use the given alt-syscall table",
+                    "TABLE_NAME");
         opts.optflag("u", "use_current_user", "Map the current user/group only");
 
         opts
@@ -77,7 +80,8 @@ impl CommandOptions {
     pub fn new(argv: &Vec<String>) -> Result<CommandOptions, ()> {
         let opts = CommandOptions::build_opts();
 
-        let mut matches = opts.parse(&argv[1..]).map_err(|_| {
+        let mut matches = opts.parse(&argv[1..])
+            .map_err(|_| {
                 CommandOptions::print_usage(&argv[0], &opts);
                 ()
             })?;
@@ -202,12 +206,16 @@ fn main() {
         .expect("Failed to parse config");
 
     let cg = match CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
-                         Path::new(cmd_opts.cgroup_parent.as_ref().unwrap_or(&"".to_string())),
-                         Path::new(cmd_opts.cgroup_name.as_ref().map_or(c.name(), |n| &n))) {
+                                        Path::new(cmd_opts.cgroup_parent
+                                            .as_ref()
+                                            .unwrap_or(&"".to_string())),
+                                        Path::new(cmd_opts.cgroup_name
+                                            .as_ref()
+                                            .map_or(c.name(), |n| &n))) {
         Ok(cg) => cg,
         Err(_) => {
-                println!("Failed to create cgroup namespace");
-                return;
+            println!("Failed to create cgroup namespace");
+            return;
         }
     };
     c.set_cgroup_namespace(Some(cg));

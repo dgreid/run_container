@@ -187,13 +187,11 @@ impl Container {
     }
 
     pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), ContainerError> {
-        let mut uid_file = fs::OpenOptions::new()
-            .write(true)
+        let mut uid_file = fs::OpenOptions::new().write(true)
             .read(false)
             .create(false)
             .open(format!("/proc/{}/uid_map", self.pid))?;
-        let mut gid_file = fs::OpenOptions::new()
-            .write(true)
+        let mut gid_file = fs::OpenOptions::new().write(true)
             .read(false)
             .create(false)
             .open(format!("/proc/{}/gid_map", self.pid))?;
