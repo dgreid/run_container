@@ -142,13 +142,17 @@ impl Drop for CGroupDir {
 
 #[cfg(test)]
 mod test {
+    extern crate nix;
     extern crate tempdir;
 
+    use self::nix::libc::pid_t;
     use self::tempdir::TempDir;
     use std::fs;
+    use std::io::Read;
     use std::path::Path;
     use std::path::PathBuf;
     use super::CGroupDir;
+    use super::CGroupNamespace;
 
     #[test]
     fn cgroup_dir() {
@@ -174,5 +178,44 @@ mod test {
         fs::remove_file(new_file.as_path()).unwrap();
         drop(cg_dir);
         assert!(!cg_path.exists());
+    }
+
+    #[test]
+    fn cgroup_create() {
+        const CGROUPS: &'static [&'static str] =
+            &["cpu", "cpuacct", "freezer", "devices"];
+        let temp_dir = TempDir::new("fake_cg").unwrap();
+        let temp_path = temp_dir.path();
+        for cgroup in CGROUPS {
+            let mut cg_path = PathBuf::from(temp_path);
+            cg_path.push(cgroup);
+            fs::create_dir(cg_path.as_path()).unwrap();
+            cg_path.push("subdir");
+            fs::create_dir(cg_path.as_path()).unwrap();
+        }
+        let mut cg = CGroupNamespace::new(temp_dir.path(), Path::new("subdir"), Path::new("oci"))
+            .unwrap();
+        cg.join_cgroups(555 as pid_t).unwrap();
+        for cgroup in CGROUPS {
+            let mut cg_path = PathBuf::from(temp_path);
+            cg_path.push(cgroup);
+            cg_path.push("subdir");
+            cg_path.push("oci");
+            assert!(cg_path.exists());
+            cg_path.push("tasks");
+            assert!(cg_path.exists());
+
+            let mut tasks_file = fs::File::open(cg_path.as_path()).unwrap();
+            let mut s = String::new();
+            tasks_file.read_to_string(&mut s).unwrap();
+            assert!(s == "555");
+        }
+
+        let mut device_list_path = PathBuf::from(temp_path);
+        device_list_path.push("devices/subdir/oci/devices.deny");
+        let mut devices_list_file = fs::File::open(device_list_path.as_path()).unwrap();
+        let mut denied = String::new();
+        devices_list_file.read_to_string(&mut denied).unwrap();
+        assert!(denied == "a *:* rwm");
     }
 }
