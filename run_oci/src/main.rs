@@ -16,7 +16,8 @@ use std::path::PathBuf;
 
 struct CommandOptions {
     alt_syscall_table: Option<String>,
-    cgroup_ns: Option<CGroupNamespace>,
+    cgroup_parent: Option<String>,
+    cgroup_name: Option<String>,
     container_path: Option<PathBuf>,
     extra_argv: Vec<String>,
     net_ns: Option<Box<NetNamespace>>,
@@ -96,14 +97,10 @@ impl CommandOptions {
                 ()
             })?;
 
-        let cgroup_ns = CommandOptions::cgroup_ns_from_opts(&matches).map_err(|_| {
-                CommandOptions::print_usage(&argv[0], &opts);
-                ()
-            })?;
-
         Ok(CommandOptions {
             alt_syscall_table: matches.opt_str("s"),
-            cgroup_ns: cgroup_ns,
+            cgroup_parent: matches.opt_str("p"),
+            cgroup_name: matches.opt_str("c"),
             container_path: Some(PathBuf::from(&matches.free[0])),
             extra_argv: matches.free.split_off(1),
             net_ns: Some(net_ns),
@@ -123,21 +120,6 @@ impl CommandOptions {
             bind_mounts.push((dirs[0].to_string(), dirs[1].to_string()));
         }
         Ok(bind_mounts)
-    }
-
-    fn cgroup_ns_from_opts(matches: &getopts::Matches) -> Result<Option<CGroupNamespace>, ()> {
-        // Cgroup parent is optional.
-        let cgroup_parent = matches.opt_str("p").unwrap_or("".to_string());
-        // Cgroup name is optional, otherwise use a default.
-        let name = matches.opt_str("c").unwrap_or("oci_container".to_string());
-        CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
-                             Path::new(&cgroup_parent),
-                             Path::new(&name))
-            .map_err(|_| {
-                    println!("Cgroup setup failure.");
-                    ()
-            })
-            .map(|c| Some(c))
     }
 
     fn net_ns_from_opts(matches: &getopts::Matches) -> Result<Box<NetNamespace>, ()> {
@@ -187,10 +169,6 @@ impl CommandOptions {
         print!("{}", opts.usage(&brief));
     }
 
-    pub fn get_cgroup_namespace(&mut self) -> Option<CGroupNamespace> {
-        self.cgroup_ns.take()
-    }
-
     pub fn get_net_namespace(&mut self) -> Box<NetNamespace> {
         self.net_ns.take().unwrap()
     }
@@ -223,7 +201,17 @@ fn main() {
                                           cmd_opts.get_bind_mounts())
         .expect("Failed to parse config");
 
-    c.set_cgroup_namespace(cmd_opts.get_cgroup_namespace());
+    let cg = match CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
+                         Path::new(cmd_opts.cgroup_parent.as_ref().unwrap_or(&"".to_string())),
+                         Path::new(cmd_opts.cgroup_name.as_ref().map_or(c.name(), |n| &n))) {
+        Ok(cg) => cg,
+        Err(_) => {
+                println!("Failed to create cgroup namespace");
+                return;
+        }
+    };
+    c.set_cgroup_namespace(Some(cg));
+
     c.set_net_namespace(cmd_opts.get_net_namespace());
     if !cmd_opts.should_use_user_config() {
         let mut user_ns = UserNamespace::new();
