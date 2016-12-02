@@ -128,17 +128,16 @@ impl CommandOptions {
     fn cgroup_ns_from_opts(matches: &getopts::Matches) -> Result<Option<CGroupNamespace>, ()> {
         // Cgroup parent is optional.
         let cgroup_parent = matches.opt_str("p").unwrap_or("".to_string());
-        // Cgroups are optional, only do setup if name is given.
-        matches.opt_str("c").map_or(Ok(None), |cgroup_name| {
-            CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
-                                 Path::new(&cgroup_parent),
-                                 Path::new(&cgroup_name))
-                .map_err(|_| {
-                                 println!("Cgroup setup failure.");
-                                 ()
-                             })
-                .map(|c| Some(c))
-        })
+        // Cgroup name is optional, otherwise use a default.
+        let name = matches.opt_str("c").unwrap_or("oci_container".to_string());
+        CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
+                             Path::new(&cgroup_parent),
+                             Path::new(&name))
+            .map_err(|_| {
+                    println!("Cgroup setup failure.");
+                    ()
+            })
+            .map(|c| Some(c))
     }
 
     fn net_ns_from_opts(matches: &getopts::Matches) -> Result<Box<NetNamespace>, ()> {
