@@ -9,11 +9,12 @@ use std::fs;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 use std::path::PathBuf;
+use std::io::Read;
 use std::io::Write;
 
 const CGROUPS: &'static [&'static str] = &["cpu",
                                            "cpuacct",
-                                           //    "cpuset",
+                                           "cpuset",
                                            "freezer",
                                            "devices"];
 
@@ -46,7 +47,7 @@ impl CGroupNamespace {
         let mut cg_config = CGroupNamespace { cgroup_dirs: HashMap::with_capacity(CGROUPS.len()) };
         for cgroup in CGROUPS {
             let cg = CGroupDir::new(&base, &parent, &name, cgroup)?;
-            CGroupNamespace::initialize_cgroup(&cg, cgroup)?;
+            CGroupNamespace::initialize_cgroup(&cg, cgroup, base, parent)?;
             cg_config.cgroup_dirs.insert(cgroup, cg);
         }
         Ok(cg_config)
@@ -66,15 +67,27 @@ impl CGroupNamespace {
         Ok(())
     }
 
-    fn initialize_cgroup(cg: &CGroupDir, name: &str) -> Result<(), Error> {
+    fn initialize_cgroup(cg: &CGroupDir, name: &str, base: &Path, parent: &Path) -> Result<(), Error> {
         match name {
             "cpu" => Ok(()),
             "cpuacct" => Ok(()),
-            "cpuset" => Ok(()),
+            "cpuset" => CGroupNamespace::initialize_cpuset_cgroup(cg, base, parent),
             "freezer" => Ok(()),
             "devices" => CGroupNamespace::initialize_device_cgroup(cg),
             _ => Err(Error::InvalidCGroup),
         }
+    }
+
+    fn initialize_cpuset_cgroup(cg: &CGroupDir, base: &Path, parent: &Path) -> Result<(), Error> {
+        let mut cpus_path = PathBuf::from(base);
+        cpus_path.push("cpuset");
+        cpus_path.push(parent);
+        cpus_path.push("cpus");
+        let mut cpus_file = fs::File::open(cpus_path.as_path()).unwrap();
+        let mut cpus = String::new();
+        cpus_file.read_to_string(&mut cpus)?;
+        cg.write_file("cpus", &cpus)?;
+        Ok(())
     }
 
     fn initialize_device_cgroup(cg: &CGroupDir) -> Result<(), Error> {
@@ -149,7 +162,7 @@ mod test {
     use self::tempdir::TempDir;
     use std::fs;
     use std::io::Read;
-    use std::path::Path;
+    use std::io::Write; use std::path::Path;
     use std::path::PathBuf;
     use super::CGroupDir;
     use super::CGroupNamespace;
@@ -183,7 +196,7 @@ mod test {
     #[test]
     fn cgroup_create() {
         const CGROUPS: &'static [&'static str] =
-            &["cpu", "cpuacct", "freezer", "devices"];
+            &["cpu", "cpuacct", "cpuset", "freezer", "devices"];
         let temp_dir = TempDir::new("fake_cg").unwrap();
         let temp_path = temp_dir.path();
         for cgroup in CGROUPS {
@@ -193,6 +206,11 @@ mod test {
             cg_path.push("subdir");
             fs::create_dir(cg_path.as_path()).unwrap();
         }
+        let mut parent_cpus_path = PathBuf::from(temp_path);
+        parent_cpus_path.push("cpuset/subdir/cpus");
+        let mut parent_cpus_file = fs::File::create(parent_cpus_path.as_path()).unwrap();
+        parent_cpus_file.write_all(b"0-4").unwrap();
+
         let mut cg = CGroupNamespace::new(temp_dir.path(), Path::new("subdir"), Path::new("oci"))
             .unwrap();
         cg.join_cgroups(555 as pid_t).unwrap();
@@ -217,5 +235,12 @@ mod test {
         let mut denied = String::new();
         devices_list_file.read_to_string(&mut denied).unwrap();
         assert!(denied == "a *:* rwm");
+
+        let mut cpus_path = PathBuf::from(temp_path);
+        cpus_path.push("cpuset/subdir/oci/cpus");
+        let mut cpus_file = fs::File::open(cpus_path.as_path()).unwrap();
+        let mut cpus = String::new();
+        cpus_file.read_to_string(&mut cpus).unwrap();
+        assert!(cpus == "0-4");
     }
 }
