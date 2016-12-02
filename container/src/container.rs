@@ -39,6 +39,7 @@ pub enum ContainerError {
     InvalidMountTarget,
     NetworkNamespaceConfigError,
     CGroupCreateError,
+    InvalidCGroup,
     AltSyscallError,
     SeccompError(seccomp_jail::Error),
 }
@@ -80,6 +81,7 @@ impl From<cgroup_namespace::Error> for ContainerError {
     fn from(err: cgroup_namespace::Error) -> ContainerError {
         match err {
             cgroup_namespace::Error::CGroupCreateError => ContainerError::CGroupCreateError,
+            cgroup_namespace::Error::InvalidCGroup => ContainerError::InvalidCGroup,
             cgroup_namespace::Error::Io(e) => ContainerError::Io(e),
             cgroup_namespace::Error::Nix(e) => ContainerError::Nix(e),
         }
