@@ -87,6 +87,15 @@ impl CGroupNamespace {
         let mut cpus = String::new();
         cpus_file.read_to_string(&mut cpus)?;
         cg.write_file("cpus", &cpus)?;
+
+        let mut mems_path = PathBuf::from(base);
+        mems_path.push("cpuset");
+        mems_path.push(parent);
+        mems_path.push("mems");
+        let mut mems_file = fs::File::open(mems_path.as_path()).unwrap();
+        let mut mems = String::new();
+        mems_file.read_to_string(&mut mems)?;
+        cg.write_file("mems", &mems)?;
         Ok(())
     }
 
@@ -211,6 +220,11 @@ mod test {
         let mut parent_cpus_file = fs::File::create(parent_cpus_path.as_path()).unwrap();
         parent_cpus_file.write_all(b"0-4").unwrap();
 
+        let mut parent_mems_path = PathBuf::from(temp_path);
+        parent_mems_path.push("cpuset/subdir/mems");
+        let mut parent_mems_file = fs::File::create(parent_mems_path.as_path()).unwrap();
+        parent_mems_file.write_all(b"0").unwrap();
+
         let mut cg = CGroupNamespace::new(temp_dir.path(), Path::new("subdir"), Path::new("oci"))
             .unwrap();
         cg.join_cgroups(555 as pid_t).unwrap();
@@ -242,5 +256,12 @@ mod test {
         let mut cpus = String::new();
         cpus_file.read_to_string(&mut cpus).unwrap();
         assert!(cpus == "0-4");
+
+        let mut mems_path = PathBuf::from(temp_path);
+        mems_path.push("cpuset/subdir/oci/mems");
+        let mut mems_file = fs::File::open(mems_path.as_path()).unwrap();
+        let mut mems = String::new();
+        mems_file.read_to_string(&mut mems).unwrap();
+        assert!(mems == "0");
     }
 }
