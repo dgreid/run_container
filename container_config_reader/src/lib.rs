@@ -4,6 +4,7 @@ extern crate nix;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate regex;
 
 extern crate container;
 
@@ -34,6 +35,7 @@ pub enum ContainerConfigError {
     MountError(MountError),
     ConfigParseError,
     NoLinuxNodeFoundError,
+    HostnameInvalid(String),
     SeccompError(seccomp_jail::Error),
 }
 
@@ -101,7 +103,10 @@ fn container_from_oci(config: OciConfig,
         None => None,
     };
 
-    Ok(Container::new(config.hostname.unwrap_or("??".to_string()).as_str(),
+    let hostname = config.hostname.unwrap_or("default".to_string()).as_str()
+    if !HostnameValid(hostname)
+        return ContainerConfigError::HostnameInvalid(hostname.to_string());
+    Ok(Container::new(hostname,
                       argv,
                       None,
                       mnt_ns,
@@ -188,6 +193,21 @@ fn user_ns_from_oci(uid_maps: Option<Vec<OciLinuxNamespaceMapping>>,
         user_ns.add_gid_mapping(gid as usize, getgid() as usize, 1);
     }
     user_ns
+}
+
+fn HostnameValid(hostname: &str) -> bool {
+    if hostname.length() > 255
+        return false;
+
+    let name_re = regex::Regex::new("^([0-9a-zA-Z]|[0-9a-zA-Z][0-9a-zA-Z-]*[0-9a-zA-Z])$")?;
+    if !name_re.is_match(hostname)
+        return false;
+
+    let double_dash = regex::Regex::new("--")?;
+    if double_dash.is_match(hostname)
+        return false;
+
+    return true;
 }
 
 fn seccomp_jail_from_oci(oci_seccomp: OciSeccomp) -> Result<SeccompJail, ContainerConfigError> {
