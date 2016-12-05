@@ -21,6 +21,7 @@ struct CommandOptions {
     container_path: Option<PathBuf>,
     extra_argv: Vec<String>,
     net_ns: Option<Box<NetNamespace>>,
+    no_cgroups: bool,
     bind_mounts: Option<Vec<(String, String)>>,
     use_configured_users: bool,
 }
@@ -73,6 +74,7 @@ impl CommandOptions {
                     "Use the given alt-syscall table",
                     "TABLE_NAME");
         opts.optflag("u", "use_current_user", "Map the current user/group only");
+        opts.optflag("z", "no_cgroup", "Don't put the contaienr in a cgroup");
 
         opts
     }
@@ -108,6 +110,7 @@ impl CommandOptions {
             container_path: Some(PathBuf::from(&matches.free[0])),
             extra_argv: matches.free.split_off(1),
             net_ns: Some(net_ns),
+            no_cgroups: matches.opt_present("z"),
             bind_mounts: Some(bind_mounts),
             use_configured_users: !matches.opt_present("u"),
         })
@@ -205,20 +208,22 @@ fn main() {
                                           cmd_opts.get_bind_mounts())
         .expect("Failed to parse config");
 
-    let cg = match CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
-                                        Path::new(cmd_opts.cgroup_parent
-                                            .as_ref()
-                                            .unwrap_or(&"".to_string())),
-                                        Path::new(cmd_opts.cgroup_name
-                                            .as_ref()
-                                            .map_or(c.name(), |n| &n))) {
-        Ok(cg) => cg,
-        Err(_) => {
-            println!("Failed to create cgroup namespace");
-            return;
-        }
-    };
-    c.set_cgroup_namespace(Some(cg));
+    if !cmd_opts.no_cgroups {
+        let cg = match CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
+                                            Path::new(cmd_opts.cgroup_parent
+                                                .as_ref()
+                                                .unwrap_or(&"".to_string())),
+                                            Path::new(cmd_opts.cgroup_name
+                                                .as_ref()
+                                                .map_or(c.name(), |n| &n))) {
+            Ok(cg) => cg,
+            Err(_) => {
+                println!("Failed to create cgroup namespace");
+                return;
+            }
+        };
+        c.set_cgroup_namespace(Some(cg));
+    }
 
     c.set_net_namespace(cmd_opts.get_net_namespace());
     if !cmd_opts.should_use_user_config() {
