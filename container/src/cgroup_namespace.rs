@@ -1,7 +1,10 @@
 extern crate nix;
 
 use self::nix::libc::pid_t;
+use self::nix::libc::uid_t;
+use self::nix::mount::*;
 use self::nix::sched::*;
+use self::nix::unistd::getuid;
 
 use std::collections::HashMap;
 use std::io;
@@ -43,10 +46,11 @@ impl From<nix::Error> for Error {
 }
 
 impl CGroupNamespace {
-    pub fn new(base: &Path, parent: &Path, name: &Path) -> Result<CGroupNamespace, Error> {
+    pub fn new(base: &Path, parent: &Path, name: &Path, root_uid: uid_t)
+            -> Result<CGroupNamespace, Error> {
         let mut cg_config = CGroupNamespace { cgroup_dirs: HashMap::with_capacity(CGROUPS.len()) };
         for cgroup in CGROUPS {
-            let cg = CGroupDir::new(&base, &parent, &name, cgroup)?;
+            let cg = CGroupDir::new(&base, &parent, &name, cgroup, root_uid)?;
             CGroupNamespace::initialize_cgroup(&cg, cgroup, base, parent)?;
             cg_config.cgroup_dirs.insert(cgroup, cg);
         }
@@ -62,8 +66,25 @@ impl CGroupNamespace {
     }
 
     pub fn enter(&self) -> Result<(), Error> {
-        // Now that the process is in each cgroup, enter a new cgroup namespace
+        // Now that the process is in each cgroup, enter a new cgroup namespace.
         nix::sched::unshare(CLONE_NEWCGROUP)?;
+        // Not allowed to mkdir in sysfs because it is owned by real root.
+        // Create a tmpfs so that the cgroup dirs can be created.
+        nix::mount::mount(Some(Path::new("")),
+                          Path::new("/sys/fs/cgroup"),
+                          Some(Path::new("tmpfs")),
+                          MS_NODEV | MS_NOEXEC | MS_MGC_VAL,
+                          None::<&Path>)?;
+        for cgroup in CGROUPS {
+            let dest = &format!("/sys/fs/cgroup/{}", cgroup);
+            let destination = Path::new(dest);
+            fs::create_dir(destination).ok();
+            nix::mount::mount(Some(Path::new("")),
+                              destination,
+                              Some(Path::new("cgroup")),
+                              MsFlags::empty(),
+                              Some(Path::new(cgroup)))?;
+        }
         Ok(())
     }
 
@@ -100,11 +121,14 @@ impl CGroupNamespace {
     }
 
     fn initialize_device_cgroup(cg: &CGroupDir) -> Result<(), Error> {
-        cg.write_file("devices.deny", "a *:* rwm")?;
-        cg.write_file("devices.allow", "c 1:3 rwm")?; // null
-        cg.write_file("devices.allow", "c 1:5 rwm")?; // zero
-        cg.write_file("devices.allow", "c 1:8 rwm")?; // random
-        cg.write_file("devices.allow", "c 1:9 rwm")?; // urandom
+        // This is only possible if we start from a privileged user.
+        if getuid() == 0 {
+            cg.write_file("devices.deny", "a *:* rwm")?;
+            cg.write_file("devices.allow", "c 1:3 rwm")?; // null
+            cg.write_file("devices.allow", "c 1:5 rwm")?; // zero
+            cg.write_file("devices.allow", "c 1:8 rwm")?; // random
+            cg.write_file("devices.allow", "c 1:9 rwm")?; // urandom
+        }
         Ok(())
     }
 }
@@ -114,7 +138,8 @@ struct CGroupDir {
 }
 
 impl CGroupDir {
-    pub fn new(base: &Path, parent: &Path, name: &Path, ctype: &str) -> Result<CGroupDir, Error> {
+    pub fn new(base: &Path, parent: &Path, name: &Path, ctype: &str, uid: uid_t)
+            -> Result<CGroupDir, Error> {
         let mut cg_dir = CGroupDir { path: PathBuf::from(base) };
         cg_dir.path.push(ctype);
         cg_dir.path.push(parent);
@@ -123,7 +148,10 @@ impl CGroupDir {
         let mut db = fs::DirBuilder::new();
         db.mode(0o700 as u32);
         match db.create(cg_dir.path.as_path()) {
-            Ok(()) => Ok(cg_dir),
+            Ok(()) => {
+                nix::unistd::chown(cg_dir.path.as_path(), Some(uid), None)?;
+                Ok(cg_dir)
+            }
             Err(e) => {
                 if e.kind() == io::ErrorKind::AlreadyExists {
                     Ok(cg_dir)
@@ -168,6 +196,7 @@ mod test {
     extern crate tempdir;
 
     use self::nix::libc::pid_t;
+    use self::nix::unistd::getuid;
     use self::tempdir::TempDir;
     use std::fs;
     use std::io::Read;
@@ -188,7 +217,8 @@ mod test {
         let cg_dir = CGroupDir::new(temp_path,
                                     Path::new("containers"),
                                     Path::new("testapp"),
-                                    "cpu")
+                                    "cpu",
+                                    0)
             .unwrap();
         let mut cg_path = PathBuf::from(temp_path);
         cg_path.push("cpu/containers/testapp");
@@ -225,7 +255,7 @@ mod test {
         let mut parent_mems_file = fs::File::create(parent_mems_path.as_path()).unwrap();
         parent_mems_file.write_all(b"0").unwrap();
 
-        let mut cg = CGroupNamespace::new(temp_dir.path(), Path::new("subdir"), Path::new("oci"))
+        let mut cg = CGroupNamespace::new(temp_dir.path(), Path::new("subdir"), Path::new("oci"), 0)
             .unwrap();
         cg.join_cgroups(555 as pid_t).unwrap();
         for cgroup in CGROUPS {
@@ -243,12 +273,14 @@ mod test {
             assert!(s == "555");
         }
 
-        let mut device_list_path = PathBuf::from(temp_path);
-        device_list_path.push("devices/subdir/oci/devices.deny");
-        let mut devices_list_file = fs::File::open(device_list_path.as_path()).unwrap();
-        let mut denied = String::new();
-        devices_list_file.read_to_string(&mut denied).unwrap();
-        assert!(denied == "a *:* rwm");
+        if getuid() == 0 {
+            let mut device_list_path = PathBuf::from(temp_path);
+            device_list_path.push("devices/subdir/oci/devices.deny");
+            let mut devices_list_file = fs::File::open(device_list_path.as_path()).unwrap();
+            let mut denied = String::new();
+            devices_list_file.read_to_string(&mut denied).unwrap();
+            assert!(denied == "a *:* rwm");
+        }
 
         let mut cpus_path = PathBuf::from(temp_path);
         cpus_path.push("cpuset/subdir/oci/cpus");

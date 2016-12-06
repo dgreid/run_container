@@ -215,7 +215,8 @@ fn main() {
                                                 .unwrap_or(&"".to_string())),
                                             Path::new(cmd_opts.cgroup_name
                                                 .as_ref()
-                                                .map_or(c.name(), |n| &n))) {
+                                                .map_or(c.name(), |n| &n)),
+                                            c.get_root_uid().unwrap()) {
             Ok(cg) => cg,
             Err(_) => {
                 println!("Failed to create cgroup namespace");

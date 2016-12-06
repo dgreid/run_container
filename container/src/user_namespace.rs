@@ -48,6 +48,15 @@ impl UserNamespace {
             .collect();
         v.join(",")
     }
+
+    pub fn get_external_uid(&self, id: usize) -> Option<usize> {
+        for map in self.uid_ranges.iter() {
+            if id >= map.id_inside && id < map.id_inside + map.map_size {
+                return Some(map.id_outside + (id - map.id_inside));
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -59,6 +68,8 @@ mod test {
         let mut u = UserNamespace::new();
         u.add_uid_mapping(0, 10, 1);
         assert_eq!(&u.uid_config_string(), "0 10 1");
+        assert_eq!(u.get_external_uid(0), Some(10));
+        assert_eq!(u.get_external_uid(1), None);
     }
 
     #[test]
@@ -67,6 +78,12 @@ mod test {
         u.add_uid_mapping(0, 10, 1);
         u.add_uid_mapping(100, 500, 20);
         assert_eq!(&u.uid_config_string(), "0 10 1,100 500 20");
+        assert_eq!(u.get_external_uid(0), Some(10));
+        assert_eq!(u.get_external_uid(1), None);
+        assert_eq!(u.get_external_uid(100), Some(500));
+        assert_eq!(u.get_external_uid(101), Some(501));
+        assert_eq!(u.get_external_uid(119), Some(519));
+        assert_eq!(u.get_external_uid(120), None);
     }
 
     #[test]

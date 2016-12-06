@@ -10,6 +10,7 @@ use sync_pipe::*;
 use syscall_defines::linux::LinuxSyscall::*;
 use user_namespace::UserNamespace;
 
+use self::nix::libc::uid_t;
 use self::nix::sys::ioctl::libc::pid_t;
 use self::nix::sched::*;
 use self::nix::sys::wait;
@@ -142,6 +143,12 @@ impl Container {
         &self.name
     }
 
+    pub fn get_root_uid(&self) -> Option<uid_t> {
+        self.user_namespace.get_external_uid(0)
+            .map(|uid| uid as uid_t)
+    }
+
+
     fn enter_alt_syscall_table(&self) -> Result<(), ContainerError> {
         self.alt_syscall_table.as_ref().map_or(Ok(()), |t| {
             unsafe {
@@ -160,8 +167,8 @@ impl Container {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
         self.net_namespace.configure_in_child()?;
-        self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
         self.mount_namespace.enter()?;
+        self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
         nix::unistd::sethostname(self.name.as_bytes())?;
         self.enter_alt_syscall_table()?;
         self.seccomp_jail.as_ref().map_or(Ok(()), |s| s.enter())?;
@@ -292,7 +299,7 @@ mod test {
         create_cgroup_type(&temp_path, "cpuset");
         create_cgroup_type(&temp_path, "devices");
         create_cgroup_type(&temp_path, "freezer");
-        CGroupNamespace::new(temp_path, Path::new("containers"), Path::new("testapp")).unwrap()
+        CGroupNamespace::new(temp_path, Path::new("containers"), Path::new("testapp"), 0).unwrap()
     }
 
     #[test]
