@@ -1,5 +1,5 @@
 extern crate container;
-extern crate container_config_reader;
+extern crate container_config;
 extern crate getopts;
 extern crate nix;
 
@@ -7,12 +7,11 @@ use container::cgroup_namespace::CGroupNamespace;
 use container::net_namespace::{NetNamespace, BridgedNetNamespace, EmptyNetNamespace,
                                NatNetNamespace};
 use container::user_namespace::UserNamespace;
-use container_config_reader::container_from_oci_config;
+use container_config::container_config_from_oci_config_file;
 
 use nix::unistd::{getgid, getuid};
 use std::env;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 struct CommandOptions {
     alt_syscall_table: Option<String>,
@@ -204,8 +203,8 @@ fn main() {
         Err(()) => return,
     };
 
-    let mut c = container_from_oci_config(&cmd_opts.get_container_path(),
-                                          cmd_opts.get_bind_mounts())
+    let mut cc = container_config_from_oci_config_file(&cmd_opts.get_container_path(),
+                                                       cmd_opts.get_bind_mounts())
         .expect("Failed to parse config");
 
     if !cmd_opts.no_cgroups {
@@ -215,27 +214,29 @@ fn main() {
                                                 .unwrap_or(&"".to_string())),
                                             Path::new(cmd_opts.cgroup_name
                                                 .as_ref()
-                                                .map_or(c.name(), |n| &n)),
-                                            c.get_root_uid().unwrap()) {
+                                                .map_or(cc.get_name(), |n| &n)),
+                                            cc.get_root_uid().unwrap()) {
             Ok(cg) => cg,
             Err(_) => {
                 println!("Failed to create cgroup namespace");
                 return;
             }
         };
-        c.set_cgroup_namespace(Some(cg));
+        cc = cc.cgroup_namespace(Some(cg));
     }
 
-    c.set_net_namespace(cmd_opts.get_net_namespace());
+    cc = cc.net_namespace(Some(cmd_opts.get_net_namespace()));
     if !cmd_opts.should_use_user_config() {
         let mut user_ns = UserNamespace::new();
         user_ns.add_uid_mapping(0, getuid() as usize, 1);
         user_ns.add_gid_mapping(0, getgid() as usize, 1);
-        c.set_user_namespace(user_ns);
+        cc = cc.user_namespace(Some(user_ns));
     }
-    c.append_args(cmd_opts.get_extra_args());
-    cmd_opts.alt_syscall_table.map(|t| c.set_alt_syscall_table(&t));
+    cc = cc.append_args(cmd_opts.get_extra_args());
+    if let Some(t) = cmd_opts.alt_syscall_table {
+        cc = cc.alt_syscall_table(Some(&t));
+    }
 
-    c.start().unwrap();
+    let mut c = cc.start().unwrap();
     c.wait().unwrap();
 }

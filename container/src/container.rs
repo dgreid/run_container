@@ -10,7 +10,6 @@ use sync_pipe::*;
 use syscall_defines::linux::LinuxSyscall::*;
 use user_namespace::UserNamespace;
 
-use self::nix::libc::uid_t;
 use self::nix::sys::ioctl::libc::pid_t;
 use self::nix::sched::*;
 use self::nix::sys::wait;
@@ -33,7 +32,7 @@ pub struct Container {
 }
 
 #[derive(Debug)]
-pub enum ContainerError {
+pub enum Error {
     Io(io::Error),
     Nix(nix::Error),
     WaitPidFailed,
@@ -45,53 +44,53 @@ pub enum ContainerError {
     SeccompError(seccomp_jail::Error),
 }
 
-impl From<nix::Error> for ContainerError {
-    fn from(err: nix::Error) -> ContainerError {
-        ContainerError::Nix(err)
+impl From<nix::Error> for Error {
+    fn from(err: nix::Error) -> Error {
+        Error::Nix(err)
     }
 }
 
-impl From<io::Error> for ContainerError {
-    fn from(err: io::Error) -> ContainerError {
-        ContainerError::Io(err)
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(err)
     }
 }
 
-impl From<MountError> for ContainerError {
-    fn from(err: MountError) -> ContainerError {
+impl From<MountError> for Error {
+    fn from(err: MountError) -> Error {
         match err {
-            MountError::Io(e) => ContainerError::Io(e),
-            MountError::Nix(e) => ContainerError::Nix(e),
-            MountError::InvalidTargetPath => ContainerError::InvalidMountTarget,
+            MountError::Io(e) => Error::Io(e),
+            MountError::Nix(e) => Error::Nix(e),
+            MountError::InvalidTargetPath => Error::InvalidMountTarget,
         }
     }
 }
 
-impl From<net_namespace::Error> for ContainerError {
-    fn from(err: net_namespace::Error) -> ContainerError {
+impl From<net_namespace::Error> for Error {
+    fn from(err: net_namespace::Error) -> Error {
         match err {
             net_namespace::Error::NetNamespaceDeviceSetupFailed => {
-                ContainerError::NetworkNamespaceConfigError
+                Error::NetworkNamespaceConfigError
             }
-            net_namespace::Error::Io(_) => ContainerError::NetworkNamespaceConfigError,
+            net_namespace::Error::Io(_) => Error::NetworkNamespaceConfigError,
         }
     }
 }
 
-impl From<cgroup_namespace::Error> for ContainerError {
-    fn from(err: cgroup_namespace::Error) -> ContainerError {
+impl From<cgroup_namespace::Error> for Error {
+    fn from(err: cgroup_namespace::Error) -> Error {
         match err {
-            cgroup_namespace::Error::CGroupCreateError => ContainerError::CGroupCreateError,
-            cgroup_namespace::Error::InvalidCGroup => ContainerError::InvalidCGroup,
-            cgroup_namespace::Error::Io(e) => ContainerError::Io(e),
-            cgroup_namespace::Error::Nix(e) => ContainerError::Nix(e),
+            cgroup_namespace::Error::CGroupCreateError => Error::CGroupCreateError,
+            cgroup_namespace::Error::InvalidCGroup => Error::InvalidCGroup,
+            cgroup_namespace::Error::Io(e) => Error::Io(e),
+            cgroup_namespace::Error::Nix(e) => Error::Nix(e),
         }
     }
 }
 
-impl From<seccomp_jail::Error> for ContainerError {
-    fn from(err: seccomp_jail::Error) -> ContainerError {
-        ContainerError::SeccompError(err)
+impl From<seccomp_jail::Error> for Error {
+    fn from(err: seccomp_jail::Error) -> Error {
+        Error::SeccompError(err)
     }
 }
 
@@ -117,39 +116,11 @@ impl Container {
         }
     }
 
-    pub fn set_cgroup_namespace(&mut self, cgroup_namespace: Option<CGroupNamespace>) {
-        self.cgroup_namespace = cgroup_namespace;
-    }
-
-    pub fn set_net_namespace(&mut self, net_namespace: Box<NetNamespace>) {
-        self.net_namespace = net_namespace;
-    }
-
-    pub fn set_user_namespace(&mut self, user_namespace: UserNamespace) {
-        self.user_namespace = user_namespace;
-    }
-
-    pub fn append_args(&mut self, args: &Vec<String>) {
-        for ref string_arg in args {
-            self.argv.push(CString::new(string_arg.as_str()).unwrap());
-        }
-    }
-
-    pub fn set_alt_syscall_table(&mut self, table: &str) {
-        self.alt_syscall_table = CString::new(table).ok();
-    }
-
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn get_root_uid(&self) -> Option<uid_t> {
-        self.user_namespace.get_external_uid(0)
-            .map(|uid| uid as uid_t)
-    }
-
-
-    fn enter_alt_syscall_table(&self) -> Result<(), ContainerError> {
+    fn enter_alt_syscall_table(&self) -> Result<(), Error> {
         self.alt_syscall_table.as_ref().map_or(Ok(()), |t| {
             unsafe {
                 match nix::sys::syscall::syscall(SYS_prctl as i64,
@@ -157,13 +128,13 @@ impl Container {
                                                  1,
                                                  t.as_ptr()) {
                     0 => Ok(()),
-                    _ => Err(ContainerError::AltSyscallError),
+                    _ => Err(Error::AltSyscallError),
                 }
             }
         })
     }
 
-    fn enter_jail(&self) -> Result<(), ContainerError> {
+    fn enter_jail(&self) -> Result<(), Error> {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
         self.net_namespace.configure_in_child()?;
@@ -193,7 +164,7 @@ impl Container {
         }
     }
 
-    pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), ContainerError> {
+    pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), Error> {
         let mut uid_file = fs::OpenOptions::new().write(true)
             .read(false)
             .create(false)
@@ -224,7 +195,7 @@ impl Container {
         panic!("Failed to execute program");
     }
 
-    pub fn start(&mut self) -> Result<(), ContainerError> {
+    pub fn start(&mut self) -> Result<(), Error> {
         let sync_pipe = SyncPipe::new()?;
 
         let pid = Container::do_clone()?;
@@ -242,7 +213,7 @@ impl Container {
         Ok(())
     }
 
-    pub fn wait(&mut self) -> Result<(), ContainerError> {
+    pub fn wait(&mut self) -> Result<(), Error> {
         loop {
             match wait::waitpid(self.pid, Some(wait::__WALL)) {
                 Ok(WaitStatus::Exited(..)) => {
@@ -257,7 +228,7 @@ impl Container {
                 Ok(WaitStatus::Continued(..)) => (),
                 Ok(WaitStatus::StillAlive) => (),
                 Err(nix::Error::Sys(nix::Errno::EINTR)) => (), // Try again.
-                Err(_) => return Err(ContainerError::WaitPidFailed),
+                Err(_) => return Err(Error::WaitPidFailed),
             }
         }
     }

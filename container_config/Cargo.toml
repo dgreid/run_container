@@ -1,12 +1,12 @@
 [package]
-name = "run_oci"
+name = "container_config"
 version = "0.1.0"
 authors = ["Dylan Reid <dgreid@chromium.org>"]
 
 [dependencies]
 container = { path = "../container" }
-container_config = { path = "../container_config" }
-getopts = "*"
 nix = { git = "http://github.com/nix-rust/nix.git" }
 serde = "*"
 serde_json = "*"
+serde_derive = "*"
+regex = "*"
