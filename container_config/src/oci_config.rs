@@ -274,6 +274,7 @@ mod tests {
     extern crate serde_json;
 
     use super::OciLinuxDevice;
+    use super::OciLinuxNamespace;
     use super::OciLinuxNamespaceMapping;
     use super::OciConfig;
     use super::OciSeccomp;
@@ -464,6 +465,9 @@ mod tests {
                     },
                     "namespaces": [
                         {
+                            "type": "cgroup"
+                        },
+                        {
                             "type": "pid"
                         },
                         {
@@ -471,6 +475,9 @@ mod tests {
                         },
                         {
                             "type": "ipc"
+                        },
+                        {
+                            "type": "user"
                         },
                         {
                             "type": "uts"
@@ -654,5 +661,17 @@ mod tests {
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].value2, 4);
         assert_eq!(seccomp.syscalls[1].args.as_ref().unwrap()[0].op,
                    "SCMP_CMP_EQ");
+        // Namespaces
+        let namespaces = basic_config.linux.as_ref().unwrap().namespaces.as_ref().unwrap();
+        assert_eq!(7,
+                   namespaces.iter()
+                       .filter(|f| {
+                match f.namespace_type.as_ref() {
+                    "cgroup" | "ipc" | "network" | "pid" | "uts" | "mount" | "user" => true,
+                    _ => false,
+                }
+            })
+                       .collect::<Vec<&OciLinuxNamespace>>()
+                       .len());
     }
 }

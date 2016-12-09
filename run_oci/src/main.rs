@@ -3,7 +3,6 @@ extern crate container_config;
 extern crate getopts;
 extern crate nix;
 
-use container::cgroup_namespace::CGroupNamespace;
 use container::net_namespace::{NetNamespace, BridgedNetNamespace, EmptyNetNamespace,
                                NatNetNamespace};
 use container::user_namespace::UserNamespace;
@@ -11,7 +10,7 @@ use container_config::container_config_from_oci_config_file;
 
 use nix::unistd::{getgid, getuid};
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 struct CommandOptions {
     alt_syscall_table: Option<String>,
@@ -20,7 +19,6 @@ struct CommandOptions {
     container_path: Option<PathBuf>,
     extra_argv: Vec<String>,
     net_ns: Option<Box<NetNamespace>>,
-    no_cgroups: bool,
     bind_mounts: Option<Vec<(String, String)>>,
     use_configured_users: bool,
 }
@@ -73,7 +71,6 @@ impl CommandOptions {
                     "Use the given alt-syscall table",
                     "TABLE_NAME");
         opts.optflag("u", "use_current_user", "Map the current user/group only");
-        opts.optflag("z", "no_cgroup", "Don't put the contaienr in a cgroup");
 
         opts
     }
@@ -109,7 +106,6 @@ impl CommandOptions {
             container_path: Some(PathBuf::from(&matches.free[0])),
             extra_argv: matches.free.split_off(1),
             net_ns: Some(net_ns),
-            no_cgroups: matches.opt_present("z"),
             bind_mounts: Some(bind_mounts),
             use_configured_users: !matches.opt_present("u"),
         })
@@ -207,22 +203,12 @@ fn main() {
                                                        cmd_opts.get_bind_mounts())
         .expect("Failed to parse config");
 
-    if !cmd_opts.no_cgroups {
-        let cg = match CGroupNamespace::new(Path::new("/sys/fs/cgroup"),
-                                            Path::new(cmd_opts.cgroup_parent
-                                                .as_ref()
-                                                .unwrap_or(&"".to_string())),
-                                            Path::new(cmd_opts.cgroup_name
-                                                .as_ref()
-                                                .map_or(cc.get_name(), |n| &n)),
-                                            cc.get_root_uid().unwrap()) {
-            Ok(cg) => cg,
-            Err(_) => {
-                println!("Failed to create cgroup namespace");
-                return;
-            }
-        };
-        cc = cc.cgroup_namespace(Some(cg));
+    if let Some(cgroup_parent) = cmd_opts.cgroup_parent.take() {
+        cc = cc.cgroup_parent(cgroup_parent);
+    }
+
+    if let Some(cgroup_name) = cmd_opts.cgroup_name.take() {
+        cc = cc.cgroup_name(cgroup_name);
     }
 
     cc = cc.net_namespace(Some(cmd_opts.get_net_namespace()));

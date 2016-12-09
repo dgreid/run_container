@@ -1,5 +1,6 @@
 extern crate nix;
 
+use cgroup::cgroup::{self, CGroup};
 use cgroup_namespace::{self, CGroupNamespace};
 use mount_namespace::*;
 use net_namespace;
@@ -15,18 +16,17 @@ use self::nix::sched::*;
 use self::nix::sys::wait;
 use self::nix::sys::wait::WaitStatus;
 use std::ffi::CString;
-use std::fs;
 use std::io;
-use std::io::Write;
 
 pub struct Container {
     name: String,
     alt_syscall_table: Option<CString>,
     argv: Vec<CString>,
+    cgroups: Vec<CGroup>,
     cgroup_namespace: Option<CGroupNamespace>,
-    mount_namespace: MountNamespace,
-    user_namespace: UserNamespace,
-    net_namespace: Box<NetNamespace>,
+    mount_namespace: Option<MountNamespace>,
+    user_namespace: Option<UserNamespace>,
+    net_namespace: Option<Box<NetNamespace>>,
     seccomp_jail: Option<SeccompJail>,
     pid: pid_t,
 }
@@ -42,6 +42,7 @@ pub enum Error {
     InvalidCGroup,
     AltSyscallError,
     SeccompError(seccomp_jail::Error),
+    CGroupFailure(cgroup::Error),
 }
 
 impl From<nix::Error> for Error {
@@ -77,11 +78,16 @@ impl From<net_namespace::Error> for Error {
     }
 }
 
+impl From<cgroup::Error> for Error {
+    fn from(err: cgroup::Error) -> Error {
+        Error::CGroupFailure(err)
+    }
+}
+
+
 impl From<cgroup_namespace::Error> for Error {
     fn from(err: cgroup_namespace::Error) -> Error {
         match err {
-            cgroup_namespace::Error::CGroupCreateError => Error::CGroupCreateError,
-            cgroup_namespace::Error::InvalidCGroup => Error::InvalidCGroup,
             cgroup_namespace::Error::Io(e) => Error::Io(e),
             cgroup_namespace::Error::Nix(e) => Error::Nix(e),
         }
@@ -97,16 +103,18 @@ impl From<seccomp_jail::Error> for Error {
 impl Container {
     pub fn new(name: &str,
                argv: Vec<CString>,
+               cgroups: Vec<CGroup>,
                cgroup_namespace: Option<CGroupNamespace>,
-               mount_namespace: MountNamespace,
-               net_namespace: Box<NetNamespace>,
-               user_namespace: UserNamespace,
+               mount_namespace: Option<MountNamespace>,
+               net_namespace: Option<Box<NetNamespace>>,
+               user_namespace: Option<UserNamespace>,
                seccomp_jail: Option<SeccompJail>)
                -> Self {
         Container {
             name: name.to_string(),
             alt_syscall_table: None,
             argv: argv,
+            cgroups: cgroups,
             cgroup_namespace: cgroup_namespace,
             mount_namespace: mount_namespace,
             net_namespace: net_namespace,
@@ -137,8 +145,8 @@ impl Container {
     fn enter_jail(&self) -> Result<(), Error> {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
-        self.net_namespace.configure_in_child()?;
-        self.mount_namespace.enter()?;
+        self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_in_child())?;
+        self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter())?;
         self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
         nix::unistd::sethostname(self.name.as_bytes())?;
         self.enter_alt_syscall_table()?;
@@ -165,22 +173,12 @@ impl Container {
     }
 
     pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), Error> {
-        let mut uid_file = fs::OpenOptions::new().write(true)
-            .read(false)
-            .create(false)
-            .open(format!("/proc/{}/uid_map", self.pid))?;
-        let mut gid_file = fs::OpenOptions::new().write(true)
-            .read(false)
-            .create(false)
-            .open(format!("/proc/{}/gid_map", self.pid))?;
-        uid_file.write_all(self.user_namespace.uid_config_string().as_bytes())?;
-        gid_file.write_all(self.user_namespace.gid_config_string().as_bytes())?;
-        drop(uid_file);
-        drop(gid_file); // ick, but dropping the file causes a flush.
+        self.user_namespace.as_ref().map_or(Ok(()), |u| u.configure(self.pid))?;
+        self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_for_pid(self.pid))?;
 
-        self.net_namespace.configure_for_pid(self.pid)?;
-        if let Some(ref mut cgroup_namespace) = self.cgroup_namespace {
-            cgroup_namespace.join_cgroups(self.pid)?;
+        for cgroup in &self.cgroups {
+            cgroup.configure()?;
+            cgroup.add_pid(self.pid)?;
         }
 
         sync_pipe.signal()?;
@@ -270,7 +268,7 @@ mod test {
         create_cgroup_type(&temp_path, "cpuset");
         create_cgroup_type(&temp_path, "devices");
         create_cgroup_type(&temp_path, "freezer");
-        CGroupNamespace::new(temp_path, Path::new("containers"), Path::new("testapp"), 0).unwrap()
+        CGroupNamespace::new()
     }
 
     #[test]
@@ -287,10 +285,11 @@ mod test {
         // TODO(dgreid) - add test with each network namespace
         let mut c = Container::new("asdf",
                                    argv,
+                                   Vec::new(),
                                    Some(cgroup_namespace),
-                                   mount_namespace,
-                                   Box::new(EmptyNetNamespace::new()),
-                                   user_namespace,
+                                   Some(mount_namespace),
+                                   Some(Box::new(EmptyNetNamespace::new())),
+                                   Some(user_namespace),
                                    Some(seccomp_jail));
         assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());

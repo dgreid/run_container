@@ -1,3 +1,10 @@
+extern crate nix;
+
+use self::nix::sys::ioctl::libc::pid_t;
+use std::fs;
+use std::io;
+use std::io::Write;
+
 struct IdRange {
     id_inside: usize,
     id_outside: usize,
@@ -56,6 +63,21 @@ impl UserNamespace {
             }
         }
         None
+    }
+
+    pub fn configure(&self, pid: pid_t) -> Result<(), io::Error> {
+        let mut uid_file = fs::OpenOptions::new().write(true)
+            .read(false)
+            .create(false)
+            .open(format!("/proc/{}/uid_map", pid))?;
+        let mut gid_file = fs::OpenOptions::new().write(true)
+            .read(false)
+            .create(false)
+            .open(format!("/proc/{}/gid_map", pid))?;
+        uid_file.write_all(self.uid_config_string().as_bytes())?;
+        gid_file.write_all(self.gid_config_string().as_bytes())?;
+        Ok(())
+        // Dropping the file causes a flush.
     }
 }
 

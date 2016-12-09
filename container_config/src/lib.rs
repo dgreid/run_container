@@ -11,6 +11,12 @@ extern crate container;
 mod oci_config;
 
 use container::container::Container;
+use container::cgroup::cgroup::{self, CGroup};
+use container::cgroup::cgroup_configuration::{self, CGroupConfiguration,
+                                              CpuAcctCGroupConfiguration, CpuCGroupConfiguration,
+                                              CpuSetCGroupConfiguration,
+                                              DevicesCGroupConfiguration,
+                                              FreezerCGroupConfiguration};
 use container::cgroup_namespace::CGroupNamespace;
 use container::mount_namespace::*;
 use container::net_namespace::{EmptyNetNamespace, NetNamespace};
@@ -37,11 +43,22 @@ pub enum Error {
     HostnameInvalid(String),
     SeccompError(seccomp_jail::Error),
     ContainerError(container::container::Error),
+    CGroupError(cgroup::Error),
+    CGroupConfigError(cgroup_configuration::Error),
+    ParseIntError(std::num::ParseIntError),
+    InvalidDeviceType,
+    NoDevicesFound,
 }
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error::Io(err)
+    }
+}
+
+impl From<std::num::ParseIntError> for Error {
+    fn from(err: std::num::ParseIntError) -> Error {
+        Error::ParseIntError(err)
     }
 }
 
@@ -69,15 +86,32 @@ impl From<container::container::Error> for Error {
     }
 }
 
+impl From<cgroup::Error> for Error {
+    fn from(err: cgroup::Error) -> Error {
+        Error::CGroupError(err)
+    }
+}
+
+impl From<cgroup_configuration::Error> for Error {
+    fn from(err: cgroup_configuration::Error) -> Error {
+        Error::CGroupConfigError(err)
+    }
+}
+
 pub struct ContainerConfig {
     name: String,
     alt_syscall_table: Option<CString>,
     argv: Vec<CString>,
+    cgroup_base_path: PathBuf,
+    cgroup_name: String,
+    cgroup_parent: String,
+    cgroup_configs: Vec<Box<CGroupConfiguration>>,
     cgroup_namespace: Option<CGroupNamespace>,
     mount_namespace: Option<MountNamespace>,
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
     seccomp_jail: Option<SeccompJail>,
+    uid: Option<uid_t>,
 }
 
 impl ContainerConfig {
@@ -86,11 +120,16 @@ impl ContainerConfig {
             name: name,
             alt_syscall_table: None,
             argv: Vec::new(),
+            cgroup_base_path: PathBuf::from("/sys/fs/cgroup"),
+            cgroup_name: "container".to_string(),
+            cgroup_parent: "".to_string(),
+            cgroup_configs: Vec::new(),
             cgroup_namespace: None,
             mount_namespace: None,
             user_namespace: None,
             net_namespace: None,
             seccomp_jail: None,
+            uid: None,
         }
     }
 
@@ -102,10 +141,32 @@ impl ContainerConfig {
         self.user_namespace.as_ref().and_then(|t| t.get_external_uid(0).map(|uid| uid as uid_t))
     }
 
+    pub fn cgroup_base_path(mut self, cgroup_base_path: &Path) -> ContainerConfig {
+        self.cgroup_base_path = PathBuf::from(cgroup_base_path);
+        self
+    }
+
+    pub fn cgroup_name(mut self, cgroup_name: String) -> ContainerConfig {
+        self.cgroup_name = cgroup_name;
+        self
+    }
+
+    pub fn cgroup_parent(mut self, cgroup_parent: String) -> ContainerConfig {
+        self.cgroup_parent = cgroup_parent;
+        self
+    }
+
     pub fn cgroup_namespace(mut self,
                             cgroup_namespace: Option<CGroupNamespace>)
                             -> ContainerConfig {
         self.cgroup_namespace = cgroup_namespace;
+        self
+    }
+
+    pub fn cgroup_configs(mut self,
+                          cgroup_configs: Vec<Box<CGroupConfiguration>>)
+                          -> ContainerConfig {
+        self.cgroup_configs = cgroup_configs;
         self
     }
 
@@ -146,13 +207,28 @@ impl ContainerConfig {
         self
     }
 
+    pub fn uid(mut self, uid: Option<uid_t>) -> ContainerConfig {
+        self.uid = uid;
+        self
+    }
+
     pub fn start(self) -> Result<Container, Error> {
+        let mut cgroups = Vec::new();
+        for cgconfig in self.cgroup_configs {
+            cgroups.push(CGroup::new(&self.cgroup_name,
+                                     &self.cgroup_parent,
+                                     &self.cgroup_base_path,
+                                     cgconfig,
+                                     self.uid)?);
+        }
+
         let mut c = Container::new(&self.name,
                                    self.argv,
+                                   cgroups,
                                    self.cgroup_namespace,
-                                   self.mount_namespace.unwrap(),
-                                   self.net_namespace.unwrap(),
-                                   self.user_namespace.unwrap(),
+                                   self.mount_namespace,
+                                   self.net_namespace,
+                                   self.user_namespace,
                                    self.seccomp_jail);
         c.start()?;
         Ok(c)
@@ -182,11 +258,17 @@ fn container_from_oci(config: OciConfig,
     let mut root_path = PathBuf::from(path);
     root_path.push(&config.root.path);
 
-    let mnt_ns = mount_ns_from_oci(config.mounts, bind_mounts, root_path)?;
-
     let linux = config.linux.ok_or(Error::NoLinuxNodeFoundError)?;
-    let user_ns = user_ns_from_oci(linux.uid_mappings,
-                                   linux.gid_mappings,
+
+    let mnt_ns = if oci_has_namespace(&linux, "mount") {
+        Some(mount_ns_from_oci(config.mounts, bind_mounts, root_path)?)
+    } else {
+        None
+    };
+
+    // TODO(dgreid) - Should user namespace really be optional?
+    let user_ns = user_ns_from_oci(&linux.uid_mappings,
+                                   &linux.gid_mappings,
                                    config.process.user.uid,
                                    config.process.user.gid);
 
@@ -197,21 +279,48 @@ fn container_from_oci(config: OciConfig,
         .collect();
 
     // TODO(dgreid) - Parse net namespace config.
-    let net_ns = Box::new(EmptyNetNamespace::new());
+    let net_ns: Option<Box<NetNamespace>> = if oci_has_namespace(&linux, "network") {
+        Some(Box::new(EmptyNetNamespace::new()))
+    } else {
+        None
+    };
+
+    let cgroup_ns = if oci_has_namespace(&linux, "cgroup") {
+        Some(CGroupNamespace::new())
+    } else {
+        None
+    };
+
+    let cgroup_configs = cgroups_from_oci(&linux)?;
 
     let seccomp_jail = match linux.seccomp {
-        Some(s) => Some(seccomp_jail_from_oci(s)?),
+        Some(ref s) => Some(seccomp_jail_from_oci(s)?),
         None => None,
     };
 
     Ok(ContainerConfig::new(hostname)
         .alt_syscall_table(None)
         .argv(argv)
-        .cgroup_namespace(None)
-        .mount_namespace(Some(mnt_ns))
+        .cgroup_namespace(cgroup_ns)
+        .cgroup_configs(cgroup_configs)
+        .mount_namespace(mnt_ns)
         .user_namespace(Some(user_ns))
-        .net_namespace(Some(net_ns))
+        .uid(Some(config.process.user.uid as uid_t))
+        .net_namespace(net_ns)
         .seccomp_jail(seccomp_jail))
+}
+
+fn oci_has_namespace(linux: &OciLinux, namespace_type: &str) -> bool {
+    if let Some(ref namespaces) = linux.namespaces {
+        for namespace in namespaces {
+            if namespace.namespace_type == namespace_type {
+                return true;
+            }
+        }
+        false
+    } else {
+        false
+    }
 }
 
 fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
@@ -264,13 +373,13 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
     Ok(mnt_ns)
 }
 
-fn user_ns_from_oci(uid_maps: Option<Vec<OciLinuxNamespaceMapping>>,
-                    gid_maps: Option<Vec<OciLinuxNamespaceMapping>>,
+fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
+                    gid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
                     uid: u32,
                     gid: u32)
                     -> UserNamespace {
     let mut user_ns = UserNamespace::new();
-    if let Some(uid_mappings) = uid_maps {
+    if let Some(ref uid_mappings) = *uid_maps {
         for id_map in uid_mappings {
             user_ns.add_uid_mapping(id_map.container_id as usize,
                                     id_map.host_id as usize,
@@ -281,7 +390,7 @@ fn user_ns_from_oci(uid_maps: Option<Vec<OciLinuxNamespaceMapping>>,
         user_ns.add_uid_mapping(uid as usize, getuid() as usize, 1);
     }
 
-    if let Some(gid_mappings) = gid_maps {
+    if let Some(ref gid_mappings) = *gid_maps {
         for id_map in gid_mappings {
             user_ns.add_gid_mapping(id_map.container_id as usize,
                                     id_map.host_id as usize,
@@ -312,10 +421,10 @@ fn hostname_valid(hostname: &str) -> bool {
     return true;
 }
 
-fn seccomp_jail_from_oci(oci_seccomp: OciSeccomp) -> Result<SeccompJail, Error> {
+fn seccomp_jail_from_oci(oci_seccomp: &OciSeccomp) -> Result<SeccompJail, Error> {
     let mut seccomp_config = SeccompConfig::new(&oci_seccomp.default_action)?;
-    for syscall in oci_seccomp.syscalls {
-        if let Some(args) = syscall.args {
+    for syscall in &oci_seccomp.syscalls {
+        if let Some(ref args) = syscall.args {
             for arg in args {
                 seccomp_config.add_rule(&syscall.name,
                               &syscall.action,
@@ -331,9 +440,140 @@ fn seccomp_jail_from_oci(oci_seccomp: OciSeccomp) -> Result<SeccompJail, Error> 
     Ok(SeccompJail::new(&seccomp_config)?)
 }
 
+fn cgroups_from_oci(linux: &OciLinux) -> Result<Vec<Box<CGroupConfiguration>>, Error> {
+    let mut cgroups = Vec::new();
+    if let Some(ref resources) = linux.resources {
+        if let Some(ref devices) = resources.devices {
+            cgroups.push(device_cgroup_config(devices)?);
+        }
+        if let Some(ref cpu) = resources.cpu {
+            cgroups.push(cpu_cgroup_config(cpu)?);
+            cgroups.push(cpuset_cgroup_config(cpu)?);
+        }
+        cgroups.push(Box::new(FreezerCGroupConfiguration::new()));
+        cgroups.push(Box::new(CpuAcctCGroupConfiguration::new()));
+    }
+    Ok(cgroups)
+}
+
+fn device_cgroup_config(devices: &Vec<OciLinuxCgroupDevice>)
+                        -> Result<Box<CGroupConfiguration>, Error> {
+    if devices.is_empty() {
+        return Err(Error::NoDevicesFound);
+    }
+
+    let mut devices_config = Box::new(DevicesCGroupConfiguration::new());
+    for ref device in devices {
+        devices_config.add_device(device.major,
+                        device.minor,
+                        device.allow,
+                        device.access.as_ref().map_or(true, |a| a.contains("r")),
+                        device.access.as_ref().map_or(true, |a| a.contains("w")),
+                        device.access.as_ref().map_or(true, |a| a.contains("m")),
+                        device.dev_type
+                            .as_ref()
+                            .map_or(Ok('a'),
+                                    |t| t.chars().nth(0).ok_or(Error::InvalidDeviceType))?)?;
+    }
+    Ok(devices_config)
+}
+
+fn cpu_cgroup_config(config: &OciLinuxCgroupCpu) -> Result<Box<CGroupConfiguration>, Error> {
+    let mut cpu_config = Box::new(CpuCGroupConfiguration::new());
+    cpu_config.shares(config.shares);
+    cpu_config.quota(config.quota);
+    cpu_config.period(config.period);
+    cpu_config.realtime_runtime(config.realtime_runtime);
+    cpu_config.realtime_period(config.realtime_period);
+    Ok(cpu_config)
+}
+
+fn cpuset_cgroup_config(config: &OciLinuxCgroupCpu)
+                        -> Result<Box<CpuSetCGroupConfiguration>, Error> {
+    let mut cpuset_config = Box::new(CpuSetCGroupConfiguration::new());
+    if let Some(ref cpus_string) = config.cpus {
+        let cpus_vec: Vec<&str> = cpus_string.split(",").collect();
+        for cpu in &cpus_vec {
+            if cpu.contains("-") {
+                // range given
+                let range: Vec<&str> = cpu.split("-").collect();
+                for i in range[0].parse::<u32>()?..(range[1].parse::<u32>()? + 1) {
+                    cpuset_config.add_cpu(i);
+                }
+            } else {
+                cpuset_config.add_cpu(cpu.parse::<u32>()?);
+            }
+        }
+    }
+
+    if let Some(ref mems_string) = config.mems {
+        let mems_vec: Vec<&str> = mems_string.split(",").collect();
+        for mem in &mems_vec {
+            if mem.contains("-") {
+                // range given
+                let range: Vec<&str> = mem.split("-").collect();
+                for i in range[0].parse::<u32>()?..(range[1].parse::<u32>()? + 1) {
+                    cpuset_config.add_mem(i);
+                }
+            } else {
+                cpuset_config.add_mem(mem.parse::<u32>()?);
+            }
+        }
+    }
+
+    Ok(cpuset_config)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::cpuset_cgroup_config;
     use super::hostname_valid;
+
+    use oci_config::*;
+
+    #[test]
+    fn test_cpuset_parsing() {
+        let oci_cpus = OciLinuxCgroupCpu {
+            shares: None,
+            quota: None,
+            period: None,
+            realtime_runtime: None,
+            realtime_period: None,
+            cpus: Some("0,2-5".to_string()),
+            mems: None,
+        };
+
+        let config = cpuset_cgroup_config(&oci_cpus).unwrap();
+        assert!(config.has_cpu(0));
+        assert!(config.has_cpu(2));
+        assert!(config.has_cpu(3));
+        assert!(config.has_cpu(4));
+        assert!(config.has_cpu(5));
+        assert_eq!(5, config.num_cpus());
+        assert_eq!(0, config.num_mems());
+    }
+
+    #[test]
+    fn test_memset_parsing() {
+        let oci_cpus = OciLinuxCgroupCpu {
+            shares: None,
+            quota: None,
+            period: None,
+            realtime_runtime: None,
+            realtime_period: None,
+            cpus: Some("0-5".to_string()),
+            mems: Some("5,7,3,0-1".to_string()),
+        };
+
+        let config = cpuset_cgroup_config(&oci_cpus).unwrap();
+        assert!(config.has_mem(0));
+        assert!(config.has_mem(1));
+        assert!(config.has_mem(3));
+        assert!(config.has_mem(5));
+        assert!(config.has_mem(7));
+        assert_eq!(5, config.num_mems());
+        assert_eq!(6, config.num_cpus());
+    }
 
     #[test]
     fn test_hostname_valid() {
