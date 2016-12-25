@@ -28,6 +28,7 @@ pub struct Container {
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
     seccomp_jail: Option<SeccompJail>,
+    additional_groups: Vec<u32>,
     pid: pid_t,
 }
 
@@ -41,6 +42,7 @@ pub enum Error {
     CGroupCreateError,
     InvalidCGroup,
     AltSyscallError,
+    SetGroupsError,
     SeccompError(seccomp_jail::Error),
     CGroupFailure(cgroup::Error),
 }
@@ -108,6 +110,7 @@ impl Container {
                mount_namespace: Option<MountNamespace>,
                net_namespace: Option<Box<NetNamespace>>,
                user_namespace: Option<UserNamespace>,
+	       additional_groups: Vec<u32>,
                seccomp_jail: Option<SeccompJail>)
                -> Self {
         Container {
@@ -119,6 +122,7 @@ impl Container {
             mount_namespace: mount_namespace,
             net_namespace: net_namespace,
             user_namespace: user_namespace,
+	    additional_groups: additional_groups,
             seccomp_jail: seccomp_jail,
             pid: 0,
         }
@@ -142,9 +146,23 @@ impl Container {
         })
     }
 
+    fn set_additional_gids(&self) -> Result<(), Error> {
+        if self.additional_groups.is_empty() {
+            return Ok(());
+        }
+
+        unsafe {
+            match nix::sys::ioctl::libc::setgroups(self.additional_groups.len(), self.additional_groups.as_ptr()) {
+                0 => Ok(()),
+                _ => Err(Error::SetGroupsError),
+            }
+        }
+    }
+
     fn enter_jail(&self) -> Result<(), Error> {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
+        self.set_additional_gids()?;
         self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_in_child())?;
         self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter())?;
         self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
@@ -290,6 +308,7 @@ mod test {
                                    Some(mount_namespace),
                                    Some(Box::new(EmptyNetNamespace::new())),
                                    Some(user_namespace),
+				   Vec::new(),
                                    Some(seccomp_jail));
         assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());

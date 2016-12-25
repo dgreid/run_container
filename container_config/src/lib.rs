@@ -111,6 +111,7 @@ pub struct ContainerConfig {
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
     seccomp_jail: Option<SeccompJail>,
+    additional_gids: Vec<u32>,
     uid: Option<uid_t>,
 }
 
@@ -129,6 +130,7 @@ impl ContainerConfig {
             user_namespace: None,
             net_namespace: None,
             seccomp_jail: None,
+            additional_gids: Vec::new(),
             uid: None,
         }
     }
@@ -212,6 +214,11 @@ impl ContainerConfig {
         self
     }
 
+    pub fn additional_gids(mut self, gids: Vec<u32>) -> ContainerConfig {
+        self.additional_gids = gids;
+        self
+    }
+
     pub fn start(self) -> Result<Container, Error> {
         let mut cgroups = Vec::new();
         for cgconfig in self.cgroup_configs {
@@ -229,6 +236,7 @@ impl ContainerConfig {
                                    self.mount_namespace,
                                    self.net_namespace,
                                    self.user_namespace,
+                                   self.additional_gids,
                                    self.seccomp_jail);
         c.start()?;
         Ok(c)
@@ -298,6 +306,8 @@ fn container_from_oci(config: OciConfig,
         None => None,
     };
 
+    let additional_gids = config.process.user.additional_gids.map_or(Vec::new(), |g| g);
+
     Ok(ContainerConfig::new(hostname)
         .alt_syscall_table(None)
         .argv(argv)
@@ -307,6 +317,7 @@ fn container_from_oci(config: OciConfig,
         .user_namespace(Some(user_ns))
         .uid(Some(config.process.user.uid as uid_t))
         .net_namespace(net_ns)
+        .additional_gids(additional_gids)
         .seccomp_jail(seccomp_jail))
 }
 
