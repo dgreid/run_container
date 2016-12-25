@@ -408,7 +408,7 @@ fn hostname_valid(hostname: &str) -> bool {
         return false;
     }
 
-    let name_re = regex::Regex::new("^([0-9a-zA-Z]|[0-9a-zA-Z][0-9a-zA-Z-]*[0-9a-zA-Z])$").unwrap();
+    let name_re = regex::Regex::new("^[0-9a-zA-Z]([0-9a-zA-Z-]*[0-9a-zA-Z])?$").unwrap();
     if !name_re.is_match(hostname) {
         return false;
     }
