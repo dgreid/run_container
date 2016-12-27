@@ -236,6 +236,11 @@ impl DevicesCGroupConfiguration {
 
 impl CGroupConfiguration for DevicesCGroupConfiguration {
     fn configure(&self, dir: &CGroupDirectory) -> Result<(), Error> {
+        // Only root can do device cgroup setup.
+        if nix::unistd::getuid() != 0 {
+            return Ok(());
+        }
+
         if self.default_allow {
             dir.write_file("devices.allow", "a")?;
         } else {
