@@ -36,7 +36,8 @@ impl CGroup {
                configuration: Box<CGroupConfiguration>,
                uid: Option<uid_t>)
                -> Result<CGroup, Error> {
-        let dir = CGroupDirectory::new(base_path, parent, name, configuration.cgroup_type(), uid)?;
+        let dir = CGroupDirectory::new(base_path, parent, name, configuration.cgroup_type())?;
+        dir.chown(uid, uid)?; // TODO allow different gid
         Ok(CGroup {
             dir: dir,
             configuration: configuration,

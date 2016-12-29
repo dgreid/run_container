@@ -232,6 +232,13 @@ impl DevicesCGroupConfiguration {
 
         Ok(())
     }
+
+    fn filename_for_access(allow: bool) -> &'static str {
+        match allow {
+            true => "devices.allow",
+            false => "devices.deny",
+        }
+    }
 }
 
 impl CGroupConfiguration for DevicesCGroupConfiguration {
@@ -241,17 +248,14 @@ impl CGroupConfiguration for DevicesCGroupConfiguration {
             return Ok(());
         }
 
-        if self.default_allow {
-            dir.write_file("devices.allow", "a")?;
-        } else {
-            dir.write_file("devices.deny", "a")?;
-        }
+        match dir.write_file(
+                DevicesCGroupConfiguration::filename_for_access(self.default_allow), "a") {
+            Err(_) => return Ok(()), // Permission denied is OK. TODO - better match
+            _ => {},
+        };
 
         for device in &self.devices {
-            let filename = match device.allow {
-                true => "devices.allow",
-                false => "devices.deny",
-            };
+            let filename = DevicesCGroupConfiguration::filename_for_access(device.allow);
             dir.write_file(filename, &device.access_string())?;
         }
 

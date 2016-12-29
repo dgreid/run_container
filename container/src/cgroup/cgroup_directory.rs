@@ -1,7 +1,6 @@
 extern crate nix;
 
-use self::nix::libc::{pid_t, uid_t};
-use self::nix::unistd::{geteuid, setresuid};
+use self::nix::libc::{gid_t, pid_t, uid_t};
 
 use std::io;
 use std::fs;
@@ -36,8 +35,7 @@ impl CGroupDirectory {
     pub fn new(base: &Path,
                parent: &str,
                name: &str,
-               ctype: &str,
-               cg_uid: Option<uid_t>)
+               ctype: &str)
                -> Result<CGroupDirectory, Error> {
         let mut cg_dir = CGroupDirectory { path: PathBuf::from(base) };
         cg_dir.path.push(ctype);
@@ -46,19 +44,8 @@ impl CGroupDirectory {
 
         let mut db = fs::DirBuilder::new();
 
-        let mut old_uid = None;
-        if let Some(uid) = cg_uid {
-            let curr = geteuid();
-            setresuid(curr, uid, curr)?;
-            old_uid = Some(curr);
-        }
         db.mode(0o700 as u32);
-        let dir_result = db.create(cg_dir.path.as_path());
-        if let Some(u) = old_uid {
-            setresuid(u, u, u)?;
-        }
-
-        match dir_result {
+        match db.create(cg_dir.path.as_path()) {
             Ok(()) => {
                 Ok(cg_dir)
             }
@@ -70,6 +57,11 @@ impl CGroupDirectory {
                 }
             }
         }
+    }
+
+    pub fn chown(&self, cg_uid: Option<uid_t>, cg_gid: Option<gid_t>) -> Result<(), Error> {
+        nix::unistd::chown(self.path.as_path(), cg_uid, cg_gid)?;
+        Ok(())
     }
 
     pub fn add_pid(&self, pid: pid_t) -> Result<(), Error> {
@@ -119,8 +111,7 @@ mod test {
         fs::create_dir(cpu_path.as_path()).unwrap();
         cpu_path.push("containers");
         fs::create_dir(cpu_path.as_path()).unwrap();
-        let cg_dir = CGroupDirectory::new(temp_path, "containers",
-                                          "testapp", "cpu", None).unwrap();
+        let cg_dir = CGroupDirectory::new(temp_path, "containers", "testapp", "cpu").unwrap();
         let mut cg_path = PathBuf::from(temp_path);
         cg_path.push("cpu/containers/testapp");
         assert!(cg_path.exists());
