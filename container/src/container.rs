@@ -164,8 +164,8 @@ impl Container {
         nix::unistd::setresgid(0, 0, 0)?;
         self.set_additional_gids()?;
         self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_in_child())?;
-        self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter())?;
         self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
+        self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter())?;
         nix::unistd::sethostname(self.name.as_bytes())?;
         self.enter_alt_syscall_table()?;
         self.seccomp_jail.as_ref().map_or(Ok(()), |s| s.enter())?;
