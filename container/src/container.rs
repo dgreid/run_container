@@ -218,6 +218,13 @@ impl Container {
         match pid {
             0 => {
                 // child
+                /* Reminder that because we call clone, glibc's stupid getpid
+                 * cache is not correct.
+                unsafe {
+                println!("child pid is {} instead of {}", nix::unistd::getpid(),
+                         nix::sys::syscall::syscall(SYS_getpid as i64));
+                }
+                */
                 self.run_child(sync_pipe);
             }
             _ => {
