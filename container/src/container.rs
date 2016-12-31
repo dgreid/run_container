@@ -172,15 +172,22 @@ impl Container {
         Ok(())
     }
 
-    fn do_clone() -> Result<pid_t, nix::Error> {
+    fn clone_flags(&self) -> nix::sched::CloneFlags {
+        let base_flags = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS;
+        if self.net_namespace.is_some() {
+            base_flags | CLONE_NEWNET
+        } else {
+            base_flags
+        }
+    }
+
+    fn do_clone(&self) -> Result<pid_t, nix::Error> {
         nix::unistd::setpgid(0, 0)?;
 
         unsafe {
-            let clone_flags = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS |
-                              CLONE_NEWNET;
             let pid = nix::sys::syscall::syscall(SYS_clone as i64,
-                                                 clone_flags.bits() |
-                                                 nix::sys::signal::SIGCHLD as i32,
+                                                 self.clone_flags().bits() |
+                                                     nix::sys::signal::SIGCHLD as i32,
                                                  0);
             if pid < 0 {
                 Err(nix::Error::Sys(nix::Errno::UnknownErrno))
@@ -214,7 +221,7 @@ impl Container {
     pub fn start(&mut self) -> Result<(), Error> {
         let sync_pipe = SyncPipe::new()?;
 
-        let pid = Container::do_clone()?;
+        let pid = self.do_clone()?;
         match pid {
             0 => {
                 // child
