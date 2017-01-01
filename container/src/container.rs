@@ -110,7 +110,7 @@ impl Container {
                mount_namespace: Option<MountNamespace>,
                net_namespace: Option<Box<NetNamespace>>,
                user_namespace: Option<UserNamespace>,
-	       additional_groups: Vec<u32>,
+               additional_groups: Vec<u32>,
                seccomp_jail: Option<SeccompJail>)
                -> Self {
         Container {
@@ -122,7 +122,7 @@ impl Container {
             mount_namespace: mount_namespace,
             net_namespace: net_namespace,
             user_namespace: user_namespace,
-	    additional_groups: additional_groups,
+            additional_groups: additional_groups,
             seccomp_jail: seccomp_jail,
             pid: 0,
         }
@@ -152,7 +152,8 @@ impl Container {
         }
 
         unsafe {
-            match nix::sys::ioctl::libc::setgroups(self.additional_groups.len(), self.additional_groups.as_ptr()) {
+            match nix::sys::ioctl::libc::setgroups(self.additional_groups.len(),
+                                                   self.additional_groups.as_ptr()) {
                 0 => Ok(()),
                 _ => Err(Error::SetGroupsError),
             }
@@ -187,7 +188,7 @@ impl Container {
         unsafe {
             let pid = nix::sys::syscall::syscall(SYS_clone as i64,
                                                  self.clone_flags().bits() |
-                                                     nix::sys::signal::SIGCHLD as i32,
+                                                 nix::sys::signal::SIGCHLD as i32,
                                                  0);
             if pid < 0 {
                 Err(nix::Error::Sys(nix::Errno::UnknownErrno))
@@ -225,13 +226,13 @@ impl Container {
         match pid {
             0 => {
                 // child
-                /* Reminder that because we call clone, glibc's stupid getpid
-                 * cache is not correct.
-                unsafe {
-                println!("child pid is {} instead of {}", nix::unistd::getpid(),
-                         nix::sys::syscall::syscall(SYS_getpid as i64));
-                }
-                */
+                // Reminder that because we call clone, glibc's stupid getpid
+                // cache is not correct.
+                // unsafe {
+                // println!("child pid is {} instead of {}", nix::unistd::getpid(),
+                // nix::sys::syscall::syscall(SYS_getpid as i64));
+                // }
+                //
                 self.run_child(sync_pipe);
             }
             _ => {
@@ -322,7 +323,7 @@ mod test {
                                    Some(mount_namespace),
                                    Some(Box::new(EmptyNetNamespace::new())),
                                    Some(user_namespace),
-				   Vec::new(),
+                                   Vec::new(),
                                    Some(seccomp_jail));
         assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());

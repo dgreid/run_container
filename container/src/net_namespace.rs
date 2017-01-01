@@ -18,9 +18,8 @@ impl From<io::Error> for Error {
 }
 
 fn enable_device(dev: &str) -> Result<(), Error> {
-    try!(Command::new("ip")
-        .args(&["link", "set", dev, "up"])
-        .status());
+    Command::new("ip").args(&["link", "set", dev, "up"])
+        .status()?;
     Ok(())
 }
 
@@ -48,28 +47,22 @@ impl NetNamespace for NatNetNamespace {
         // Crate a veth pair, set up masquerade for one port, give the other to
         // the pid's net namespace.
         // TODO - don't hard-code veth0,veth1
-        try!(Command::new("ip")
-            .args(&["link", "add", "veth0", "type", "veth", "peer", "name", "veth1"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["addr", "add", &self.ip_addr, "dev", "veth0"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", "veth0", "up"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", "veth1", "up"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", "veth1", "netns", &pid.to_string()])
-            .status());
+        Command::new("ip").args(&["link", "add", "veth0", "type", "veth", "peer", "name", "veth1"])
+            .status()?;
+        Command::new("ip").args(&["addr", "add", &self.ip_addr, "dev", "veth0"])
+            .status()?;
+        Command::new("ip").args(&["link", "set", "veth0", "up"])
+            .status()?;
+        Command::new("ip").args(&["link", "set", "veth1", "up"])
+            .status()?;
+        Command::new("ip").args(&["link", "set", "veth1", "netns", &pid.to_string()])
+            .status()?;
         // iptables nat masquerade setup
         for iface in self.upstream_ifaces.iter() {
-            try!(Command::new("iptables")
+            Command::new("iptables")
                 .args(&["-t", "nat", "-A", "POSTROUTING", "-o", &iface, "-j", "MASQUERADE"])
-                .status());
-            try!(Command::new("iptables")
-                .args(&["-A",
+                .status()?;
+            Command::new("iptables").args(&["-A",
                         "FORWARD",
                         "-i",
                         "veth0",
@@ -81,20 +74,19 @@ impl NetNamespace for NatNetNamespace {
                         "RELATED,ESTABLISHED",
                         "-j",
                         "ACCEPT"])
-                .status());
-            try!(Command::new("iptables")
+                .status()?;
+            Command::new("iptables")
                 .args(&["-A", "FORWARD", "-i", "veth0", "-o", &iface, "-j", "ACCEPT"])
-                .status());
+                .status()?;
         }
-        try!(Command::new("sysctl")
-            .arg("net.ipv4.ip_forward=1")
-            .status());
+        Command::new("sysctl").arg("net.ipv4.ip_forward=1")
+            .status()?;
 
         Ok(())
     }
 
     fn configure_in_child(&self) -> Result<(), Error> {
-        try!(enable_device("lo"));
+        enable_device("lo")?;
         Ok(())
     }
 }
@@ -126,9 +118,8 @@ impl BridgedNetNamespace {
             .status();
         // Allowed to fail if the bridge already exists.
         if status.is_ok() {
-            try!(Command::new("brctl")
-                .args(&["addif", &self.bridge_name, &self.upstream_iface])
-                .status());
+            Command::new("brctl").args(&["addif", &self.bridge_name, &self.upstream_iface])
+                .status()?;
         }
         Ok(())
     }
@@ -137,47 +128,38 @@ impl BridgedNetNamespace {
 impl NetNamespace for BridgedNetNamespace {
     fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error> {
         // If it doesn't exist, create the bridge and add the upstream interface
-        try!(self.create_bridge());
+        self.create_bridge()?;
 
         // Create a veth pair and add one end to the specified bridge.
 
         // TODO(dgreid) - don't hard-code vethC0, select next available number
         // to enable multiple containers
-        try!(Command::new("ip")
+        Command::new("ip")
             .args(&["link", "add", "vethC0Host", "type", "veth", "peer", "name", "vethC0"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", "vethC0Host", "up"])
-            .status());
-        try!(Command::new("brctl")
-            .args(&["addif", &self.bridge_name, "vethC0Host"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", &self.bridge_name, "up"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", "vethC0Host", "up"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", "vethC0", "netns", &pid.to_string()])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", &self.upstream_iface, "up"])
-            .status());
+            .status()?;
+        Command::new("ip").args(&["link", "set", "vethC0Host", "up"])
+            .status()?;
+        Command::new("brctl").args(&["addif", &self.bridge_name, "vethC0Host"])
+            .status()?;
+        Command::new("ip").args(&["link", "set", &self.bridge_name, "up"])
+            .status()?;
+        Command::new("ip").args(&["link", "set", "vethC0Host", "up"])
+            .status()?;
+        Command::new("ip").args(&["link", "set", "vethC0", "netns", &pid.to_string()])
+            .status()?;
+        Command::new("ip").args(&["link", "set", &self.upstream_iface, "up"])
+            .status()?;
         Ok(())
     }
 
     fn configure_in_child(&self) -> Result<(), Error> {
-        try!(Command::new("ip")
-            .args(&["addr", "add", &self.namespace_ip, "dev", "vethC0"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["link", "set", "vethC0", "up"])
-            .status());
-        try!(Command::new("ip")
-            .args(&["route", "add", "default", "via", &self.default_route_ip])
-            .status());
-        try!(enable_device("lo"));
+        Command::new("ip").args(&["addr", "add", &self.namespace_ip, "dev", "vethC0"])
+            .status()?;
+        Command::new("ip").args(&["link", "set", "vethC0", "up"])
+            .status()?;
+        Command::new("ip").args(&["route", "add", "default", "via", &self.default_route_ip])
+            .status()?;
+        enable_device("lo")?;
         Ok(())
     }
 }
@@ -199,7 +181,7 @@ impl NetNamespace for EmptyNetNamespace {
 
     fn configure_in_child(&self) -> Result<(), Error> {
         // Only loopback to bring up.
-        try!(enable_device("lo"));
+        enable_device("lo")?;
         Ok(())
     }
 }

@@ -132,8 +132,18 @@ impl CpuSetCGroupConfiguration {
 
 impl CGroupConfiguration for CpuSetCGroupConfiguration {
     fn configure(&self, dir: &CGroupDirectory) -> Result<(), Error> {
-        dir.write_file("cpus", &self.cpus.iter().map(|c| c.to_string()).collect::<Vec<String>>().join(","))?;
-        dir.write_file("mems", &self.mems.iter().map(|c| c.to_string()).collect::<Vec<String>>().join(","))?;
+        dir.write_file("cpus",
+                        &self.cpus
+                            .iter()
+                            .map(|c| c.to_string())
+                            .collect::<Vec<String>>()
+                            .join(","))?;
+        dir.write_file("mems",
+                        &self.mems
+                            .iter()
+                            .map(|c| c.to_string())
+                            .collect::<Vec<String>>()
+                            .join(","))?;
         Ok(())
     }
 
@@ -248,10 +258,10 @@ impl CGroupConfiguration for DevicesCGroupConfiguration {
             return Ok(());
         }
 
-        match dir.write_file(
-                DevicesCGroupConfiguration::filename_for_access(self.default_allow), "a") {
+        match dir.write_file(DevicesCGroupConfiguration::filename_for_access(self.default_allow),
+                             "a") {
             Err(_) => return Ok(()), // Permission denied is OK. TODO - better match
-            _ => {},
+            _ => {}
         };
 
         for device in &self.devices {
