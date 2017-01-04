@@ -65,19 +65,29 @@ impl UserNamespace {
         None
     }
 
-    pub fn configure(&self, pid: pid_t) -> Result<(), io::Error> {
+    pub fn configure(&self, pid: pid_t, disable_set_groups: bool) -> Result<(), io::Error> {
         let mut uid_file = fs::OpenOptions::new().write(true)
             .read(false)
             .create(false)
             .open(format!("/proc/{}/uid_map", pid))?;
+        uid_file.write_all(self.uid_config_string().as_bytes())?;
+
+        if disable_set_groups {
+            // Must disable setgroups before writing gid map if running as a normal user
+            let mut setgroups_file = fs::OpenOptions::new().write(true)
+                .read(false)
+                .create(false)
+                .open(format!("/proc/{}/setgroups", pid))?;
+            setgroups_file.write_all(b"deny")?;
+        }
+
         let mut gid_file = fs::OpenOptions::new().write(true)
             .read(false)
             .create(false)
             .open(format!("/proc/{}/gid_map", pid))?;
-        uid_file.write_all(self.uid_config_string().as_bytes())?;
         gid_file.write_all(self.gid_config_string().as_bytes())?;
+
         Ok(())
-        // Dropping the file causes a flush.
     }
 }
 
