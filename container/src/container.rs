@@ -16,7 +16,9 @@ use self::nix::sched::*;
 use self::nix::sys::wait;
 use self::nix::sys::wait::WaitStatus;
 use std::ffi::CString;
+use std::fs;
 use std::io;
+use std::io::Write;
 
 pub struct Container {
     name: String,
@@ -29,6 +31,7 @@ pub struct Container {
     net_namespace: Option<Box<NetNamespace>>,
     seccomp_jail: Option<SeccompJail>,
     additional_groups: Vec<u32>,
+    privileged: bool,
     pid: pid_t,
 }
 
@@ -111,7 +114,8 @@ impl Container {
                net_namespace: Option<Box<NetNamespace>>,
                user_namespace: Option<UserNamespace>,
                additional_groups: Vec<u32>,
-               seccomp_jail: Option<SeccompJail>)
+               seccomp_jail: Option<SeccompJail>,
+               privileged: bool)
                -> Self {
         Container {
             name: name.to_string(),
@@ -124,6 +128,7 @@ impl Container {
             user_namespace: user_namespace,
             additional_groups: additional_groups,
             seccomp_jail: seccomp_jail,
+            privileged: privileged,
             pid: 0,
         }
     }
@@ -199,6 +204,15 @@ impl Container {
     }
 
     pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), Error> {
+        if !self.privileged {
+            // Must disable setgroups before writing gid map if running as a normal user
+            let mut setgroups_file = fs::OpenOptions::new().write(true)
+                .read(false)
+                .create(false)
+                .open("/proc/self/setgroups")?;
+            setgroups_file.write_all(b"deny")?;
+        }
+
         self.user_namespace.as_ref().map_or(Ok(()), |u| u.configure(self.pid))?;
         self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_for_pid(self.pid))?;
 
@@ -324,7 +338,8 @@ mod test {
                                    Some(Box::new(EmptyNetNamespace::new())),
                                    Some(user_namespace),
                                    Vec::new(),
-                                   Some(seccomp_jail));
+                                   Some(seccomp_jail),
+                                   true);
         assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());
         assert!(c.wait().is_ok());

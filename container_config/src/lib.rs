@@ -237,7 +237,8 @@ impl ContainerConfig {
                                    self.net_namespace,
                                    self.user_namespace,
                                    self.additional_gids,
-                                   self.seccomp_jail);
+                                   self.seccomp_jail,
+                                   false);
         c.start()?;
         Ok(c)
     }
