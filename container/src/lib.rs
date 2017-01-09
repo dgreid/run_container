@@ -4,6 +4,7 @@ pub mod container;
 pub mod mount_namespace;
 pub mod net_namespace;
 pub mod seccomp_jail;
+pub mod sysctls;
 pub mod user_namespace;
 
 mod syscall_defines;

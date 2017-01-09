@@ -7,6 +7,8 @@ use net_namespace;
 use net_namespace::NetNamespace;
 use seccomp_jail;
 use seccomp_jail::SeccompJail;
+use sysctls;
+use sysctls::Sysctls;
 use sync_pipe::*;
 use syscall_defines::linux::LinuxSyscall::*;
 use user_namespace::UserNamespace;
@@ -28,6 +30,7 @@ pub struct Container {
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
     seccomp_jail: Option<SeccompJail>,
+    sysctls: Option<Sysctls>,
     additional_groups: Vec<u32>,
     privileged: bool,
     pid: pid_t,
@@ -45,6 +48,7 @@ pub enum Error {
     AltSyscallError,
     SetGroupsError,
     SeccompError(seccomp_jail::Error),
+    SysctlError(sysctls::Error),
     CGroupFailure(cgroup::Error),
 }
 
@@ -87,7 +91,6 @@ impl From<cgroup::Error> for Error {
     }
 }
 
-
 impl From<cgroup_namespace::Error> for Error {
     fn from(err: cgroup_namespace::Error) -> Error {
         match err {
@@ -103,6 +106,12 @@ impl From<seccomp_jail::Error> for Error {
     }
 }
 
+impl From<sysctls::Error> for Error {
+    fn from(err: sysctls::Error) -> Error {
+        Error::SysctlError(err)
+    }
+}
+
 impl Container {
     pub fn new(name: &str,
                argv: Vec<CString>,
@@ -113,6 +122,7 @@ impl Container {
                user_namespace: Option<UserNamespace>,
                additional_groups: Vec<u32>,
                seccomp_jail: Option<SeccompJail>,
+               sysctls: Option<Sysctls>,
                privileged: bool)
                -> Self {
         Container {
@@ -126,6 +136,7 @@ impl Container {
             user_namespace: user_namespace,
             additional_groups: additional_groups,
             seccomp_jail: seccomp_jail,
+            sysctls: sysctls,
             privileged: privileged,
             pid: 0,
         }
@@ -170,6 +181,7 @@ impl Container {
         self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_in_child())?;
         self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
         self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter())?;
+        self.sysctls.as_ref().map_or(Ok(()), |s| s.configure())?;
         nix::unistd::sethostname(self.name.as_bytes())?;
         self.enter_alt_syscall_table()?;
         self.seccomp_jail.as_ref().map_or(Ok(()), |s| s.enter())?;
@@ -328,6 +340,7 @@ mod test {
                                    Some(user_namespace),
                                    Vec::new(),
                                    Some(seccomp_jail),
+                                   None,
                                    true);
         assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());

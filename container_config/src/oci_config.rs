@@ -1,5 +1,6 @@
 extern crate serde;
 extern crate serde_json;
+use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize)]
 pub struct OciPlatform {
@@ -252,7 +253,8 @@ pub struct OciLinux {
     pub rootfs_propagation: Option<String>,
     #[serde(rename="mountLabel")]
     pub mount_label: Option<String>,
-    pub seccomp: Option<OciSeccomp>, // TODO sysctl
+    pub seccomp: Option<OciSeccomp>,
+    pub sysctl: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -272,6 +274,8 @@ pub struct OciConfig {
 mod tests {
     extern crate serde;
     extern crate serde_json;
+
+    use std::collections::HashMap;
 
     use super::OciLinuxDevice;
     use super::OciLinuxNamespace;
@@ -515,6 +519,10 @@ mod tests {
                         "/proc/sys",
                         "/proc/sysrq-trigger"
                     ],
+                    "sysctl": {
+                        "net.ipv4.ip_forward": "1",
+                        "net.core.somaxconn": "256"
+                    },
                     "seccomp": {
                         "defaultAction": "SCMP_ACT_KILL",
                         "architectures": [
@@ -648,6 +656,9 @@ mod tests {
         assert_eq!(id_map.host_id, 1000);
         assert_eq!(id_map.container_id, 0);
         assert_eq!(id_map.size, 10);
+        // sysctl
+        let sysctl: &HashMap<String, String> = basic_config.linux.as_ref().unwrap().sysctl.as_ref().unwrap();
+        assert_eq!(sysctl["net.ipv4.ip_forward"], "1");
         // seccomp
         let seccomp: &OciSeccomp = basic_config.linux.as_ref().unwrap().seccomp.as_ref().unwrap();
         assert_eq!(seccomp.default_action, "SCMP_ACT_KILL");

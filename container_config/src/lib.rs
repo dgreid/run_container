@@ -21,12 +21,14 @@ use container::cgroup_namespace::CGroupNamespace;
 use container::mount_namespace::*;
 use container::net_namespace::{EmptyNetNamespace, NetNamespace};
 use container::seccomp_jail::{self, SeccompConfig, SeccompJail};
+use container::sysctls::Sysctls;
 use container::user_namespace::UserNamespace;
 
 use self::nix::libc::uid_t;
 use self::nix::mount::*;
 use self::nix::unistd::{getuid, getgid};
 
+use std::collections::HashMap;
 use std::io::{self, BufReader};
 use std::fs::File;
 use std::ffi::CString;
@@ -113,6 +115,7 @@ pub struct ContainerConfig {
     seccomp_jail: Option<SeccompJail>,
     additional_gids: Vec<u32>,
     uid: Option<uid_t>,
+    sysctls: Option<Sysctls>,
 }
 
 impl ContainerConfig {
@@ -132,6 +135,7 @@ impl ContainerConfig {
             seccomp_jail: None,
             additional_gids: Vec::new(),
             uid: None,
+	    sysctls: None,
         }
     }
 
@@ -209,6 +213,11 @@ impl ContainerConfig {
         self
     }
 
+    pub fn sysctls(mut self, sysctls: Option<HashMap<String, String>>) -> ContainerConfig {
+	self.sysctls = sysctls.map(|s| Sysctls::new(s));
+	self
+    }
+
     pub fn uid(mut self, uid: Option<uid_t>) -> ContainerConfig {
         self.uid = uid;
         self
@@ -238,6 +247,7 @@ impl ContainerConfig {
                                    self.user_namespace,
                                    self.additional_gids,
                                    self.seccomp_jail,
+				   self.sysctls,
                                    false);
         c.start()?;
         Ok(c)
