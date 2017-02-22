@@ -182,7 +182,7 @@ impl Container {
         self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
         self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter())?;
         self.sysctls.as_ref().map_or(Ok(()), |s| s.configure())?;
-        nix::unistd::sethostname(self.name.as_bytes())?;
+        nix::unistd::sethostname(&self.name)?;
         self.enter_alt_syscall_table()?;
         self.seccomp_jail.as_ref().map_or(Ok(()), |s| s.enter())?;
         Ok(())
