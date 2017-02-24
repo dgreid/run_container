@@ -273,6 +273,7 @@ impl Container {
                 Ok(WaitStatus::Stopped(..)) => (), // Child being traced?  Try again.
                 Ok(WaitStatus::Continued(..)) => (),
                 Ok(WaitStatus::StillAlive) => (),
+                Ok(WaitStatus::PtraceEvent(..)) => (),
                 Err(nix::Error::Sys(nix::Errno::EINTR)) => (), // Try again.
                 Err(_) => return Err(Error::WaitPidFailed),
             }

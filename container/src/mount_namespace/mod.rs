@@ -167,6 +167,7 @@ mod test {
                 Ok(WaitStatus::Stopped(..)) => (),
                 Ok(WaitStatus::Continued(..)) => (),
                 Ok(WaitStatus::StillAlive) => (),
+                Ok(WaitStatus::PtraceEvent(..)) => (),
                 Err(nix::Error::Sys(nix::Errno::EINTR)) => (), // Try again.
                 Err(_) => break,
             }
