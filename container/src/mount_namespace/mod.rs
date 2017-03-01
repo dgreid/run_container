@@ -5,6 +5,7 @@ mod open_dir;
 use self::nix::mount::*;
 use self::open_dir::OpenDir;
 use std::fs;
+use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -83,9 +84,7 @@ impl MountNamespace {
         for m in self.mounts.iter() {
             let mut target = self.root.clone();
             target.push(m.target.as_path());
-            if !target.exists() {
-                try!(fs::create_dir(target.as_path()));
-            }
+	    self.prepare_mount_target(&m.source, &target)?;
             try!(nix::mount::mount(m.source.as_ref(),
                                    target.as_path(),
                                    m.fstype.as_ref().map(|t| &**t),
@@ -95,6 +94,21 @@ impl MountNamespace {
 
         try!(self.enter_pivot_root());
 
+        Ok(())
+    }
+
+    fn prepare_mount_target(&self, source: &Option<PathBuf>, target: &PathBuf)
+            -> Result<(), MountError> {
+        if target.exists() {
+            return Ok(());
+        }
+        if let &Some(ref s) = source {
+            if s.exists() && !s.is_dir() {
+                OpenOptions::new().create(true).write(true).open(target.as_path())?;
+                return Ok(());
+            }
+        }
+	fs::create_dir(target.as_path())?;
         Ok(())
     }
 
@@ -156,6 +170,7 @@ mod test {
     use self::nix::sys::wait;
     use self::nix::sys::wait::WaitStatus;
     use self::tempdir::TempDir;
+    use std::fs::OpenOptions;
     use std::path::PathBuf;
     use super::MountNamespace;
 
@@ -202,6 +217,10 @@ mod test {
         let root_path = root_dir.path();
         let tmp_dir = TempDir::new("/tmp/one").unwrap();
         let source = tmp_dir.path();
+        let tmp_dir2 = TempDir::new("/tmp/filedir").unwrap();
+        let mut file_source = PathBuf::from(tmp_dir2.path());
+        file_source.push("test_source");
+        OpenOptions::new().create(true).write(true).open(file_source.as_path()).unwrap();
 
         let pid = clone(Box::new(move || {
             let target = PathBuf::from("one");
@@ -215,9 +234,12 @@ mod test {
             let mut m = MountNamespace::new(root_path.to_path_buf());
             m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options).unwrap();
             m.add_mount(None, target2, fstype2, MS_REC, options2).unwrap();
+            m.add_mount(Some(file_source.clone()), PathBuf::from("/three"),
+                        None, MS_BIND | MS_REC, Vec::new()).unwrap();
             assert_eq!(m.enter().is_ok(), true);
-            assert!(PathBuf::from("/one").exists());
-            assert!(PathBuf::from("/two").exists());
+            assert!(PathBuf::from("/one").is_dir());
+            assert!(PathBuf::from("/two").is_dir());
+            assert!(PathBuf::from("/three").is_file());
             0
         }),
                         &mut stack,
