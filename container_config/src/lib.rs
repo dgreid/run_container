@@ -348,12 +348,6 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                      root_path: PathBuf)
                      -> Result<MountNamespace, Error> {
     let mut mnt_ns = MountNamespace::new(root_path);
-    // Always mount sysfs.
-    try!(mnt_ns.add_mount(None,
-                          PathBuf::from("sys"),
-                          Some("sysfs".to_string()),
-                          MsFlags::empty(),
-                          Vec::new()));
     if let Some(mounts) = mounts_vec {
         for m in mounts.into_iter() {
             let mut flags = MsFlags::empty();
