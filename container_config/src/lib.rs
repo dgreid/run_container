@@ -278,7 +278,7 @@ fn container_from_oci(config: OciConfig,
     let linux = config.linux.ok_or(Error::NoLinuxNodeFoundError)?;
 
     let mnt_ns = if oci_has_namespace(&linux, "mount") {
-        Some(mount_ns_from_oci(config.mounts, bind_mounts, root_path)?)
+        Some(mount_ns_from_oci(config.mounts, bind_mounts, &linux.devices, root_path)?)
     } else {
         None
     };
@@ -345,6 +345,7 @@ fn oci_has_namespace(linux: &OciLinux, namespace_type: &str) -> bool {
 
 fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                      bind_mounts: Vec<(String, String)>,
+                     devices: &Option<Vec<OciLinuxDevice>>,
                      root_path: PathBuf)
                      -> Result<MountNamespace, Error> {
     let mut mnt_ns = MountNamespace::new(root_path);
@@ -383,6 +384,15 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                               None,
                               MS_BIND,
                               Vec::new()));
+    }
+    if let Some(ref devices) = *devices {
+        for d in devices {
+            mnt_ns.add_mount(Some(PathBuf::from(&d.path)),
+                             PathBuf::from(&d.path.trim_matches('/')),
+                             None,
+                             MS_BIND,
+                             Vec::new())?;
+        }
     }
     Ok(mnt_ns)
 }
