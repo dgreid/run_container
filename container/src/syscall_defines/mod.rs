@@ -6,6 +6,10 @@ pub mod linux;
 #[path="linux-x86/mod.rs"]
 pub mod linux;
 
+#[cfg(target_arch="aarch64")]
+#[path="linux-aarch64/mod.rs"]
+pub mod linux;
+
 pub enum Error {
     UnknownSyscall,
 }
