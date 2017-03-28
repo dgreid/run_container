@@ -22,8 +22,7 @@ impl From<nix::Error> for Error {
     }
 }
 
-pub struct CGroupNamespace {
-}
+pub struct CGroupNamespace {}
 
 impl CGroupNamespace {
     pub fn new() -> CGroupNamespace {

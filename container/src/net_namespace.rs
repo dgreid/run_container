@@ -164,8 +164,7 @@ impl NetNamespace for BridgedNetNamespace {
     }
 }
 
-pub struct EmptyNetNamespace {
-}
+pub struct EmptyNetNamespace {}
 
 impl EmptyNetNamespace {
     pub fn new() -> Self {

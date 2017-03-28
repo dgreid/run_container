@@ -11,11 +11,11 @@ pub struct SyncPipe {
 impl SyncPipe {
     pub fn new() -> Result<SyncPipe, nix::Error> {
         pipe().map(|fds| {
-            SyncPipe {
-                read_fd: fds.0,
-                write_fd: fds.1,
-            }
-        })
+                       SyncPipe {
+                           read_fd: fds.0,
+                           write_fd: fds.1,
+                       }
+                   })
     }
 
     pub fn wait(&self) -> Result<(), nix::Error> {

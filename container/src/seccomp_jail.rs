@@ -82,9 +82,9 @@ impl SeccompConfig {
     pub fn new(default_action: &str) -> Result<SeccompConfig, Error> {
         let default_action = try!(action_from_string(default_action));
         Ok(SeccompConfig {
-            default_action: default_action,
-            rules: HashMap::new(),
-        })
+               default_action: default_action,
+               rules: HashMap::new(),
+           })
     }
 
     pub fn add_rule(&mut self,
@@ -102,11 +102,11 @@ impl SeccompConfig {
         let mut ops = self.rules.entry(hash_key).or_insert(Vec::new());
         if let (Some(op), Some(arg_index)) = (op, arg_index) {
             ops.push(seccomp_sys::scmp_arg_cmp {
-                arg: arg_index,
-                op: op_from_string(op)?,
-                datum_a: val.unwrap_or(0),
-                datum_b: val2.unwrap_or(0),
-            });
+                         arg: arg_index,
+                         op: op_from_string(op)?,
+                         datum_a: val.unwrap_or(0),
+                         datum_b: val2.unwrap_or(0),
+                     });
         }
         Ok(())
     }
@@ -167,13 +167,14 @@ mod test {
                 return;
             }
         };
-        assert!(config.add_rule("getuid",
-                      "SCMP_ACT_ERRNO",
-                      Some(0),
-                      Some(0),
-                      None,
-                      Some("SCMP_CMP_GE"))
-            .is_ok());
+        assert!(config
+                    .add_rule("getuid",
+                              "SCMP_ACT_ERRNO",
+                              Some(0),
+                              Some(0),
+                              None,
+                              Some("SCMP_CMP_GE"))
+                    .is_ok());
         let jail = match SeccompJail::new(&config) {
             Ok(j) => j,
             Err(e) => {
@@ -198,16 +199,21 @@ mod test {
                 return;
             }
         };
-        assert!(config.add_rule("getuid", "SCMP_ACT_ALLOW", None, None, None, None)
-            .is_ok());
-        assert!(config.add_rule("futex", "SCMP_ACT_ALLOW", None, None, None, None)
-            .is_ok());
-        assert!(config.add_rule("exit", "SCMP_ACT_ALLOW", None, None, None, None)
-            .is_ok());
-        assert!(config.add_rule("exit_group", "SCMP_ACT_ALLOW", None, None, None, None)
-            .is_ok());
-        assert!(config.add_rule("rt_sigreturn", "SCMP_ACT_ALLOW", None, None, None, None)
-            .is_ok());
+        assert!(config
+                    .add_rule("getuid", "SCMP_ACT_ALLOW", None, None, None, None)
+                    .is_ok());
+        assert!(config
+                    .add_rule("futex", "SCMP_ACT_ALLOW", None, None, None, None)
+                    .is_ok());
+        assert!(config
+                    .add_rule("exit", "SCMP_ACT_ALLOW", None, None, None, None)
+                    .is_ok());
+        assert!(config
+                    .add_rule("exit_group", "SCMP_ACT_ALLOW", None, None, None, None)
+                    .is_ok());
+        assert!(config
+                    .add_rule("rt_sigreturn", "SCMP_ACT_ALLOW", None, None, None, None)
+                    .is_ok());
         let jail = match SeccompJail::new(&config) {
             Ok(j) => j,
             Err(e) => {

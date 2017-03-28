@@ -25,19 +25,21 @@ impl UserNamespace {
     }
 
     pub fn add_uid_mapping(&mut self, id_inside: usize, id_outside: usize, map_size: usize) {
-        self.uid_ranges.push(IdRange {
-            id_inside: id_inside,
-            id_outside: id_outside,
-            map_size: map_size,
-        });
+        self.uid_ranges
+            .push(IdRange {
+                      id_inside: id_inside,
+                      id_outside: id_outside,
+                      map_size: map_size,
+                  });
     }
 
     pub fn add_gid_mapping(&mut self, id_inside: usize, id_outside: usize, map_size: usize) {
-        self.gid_ranges.push(IdRange {
-            id_inside: id_inside,
-            id_outside: id_outside,
-            map_size: map_size,
-        });
+        self.gid_ranges
+            .push(IdRange {
+                      id_inside: id_inside,
+                      id_outside: id_outside,
+                      map_size: map_size,
+                  });
     }
 
     pub fn uid_config_string(&self) -> String {

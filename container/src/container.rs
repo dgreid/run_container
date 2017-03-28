@@ -161,17 +161,19 @@ impl Container {
     }
 
     fn enter_alt_syscall_table(&self) -> Result<(), Error> {
-        self.alt_syscall_table.as_ref().map_or(Ok(()), |t| {
-            unsafe {
-                match nix::sys::syscall::syscall(SYS_prctl as i64,
-                                                 0x43724f53, // PR_ALT_SYSCALL
-                                                 1,
-                                                 t.as_ptr()) {
-                    0 => Ok(()),
-                    _ => Err(Error::AltSyscallError),
+        self.alt_syscall_table
+            .as_ref()
+            .map_or(Ok(()), |t| {
+                unsafe {
+                    match nix::sys::syscall::syscall(SYS_prctl as i64,
+                                                     0x43724f53, // PR_ALT_SYSCALL
+                                                     1,
+                                                     t.as_ptr()) {
+                        0 => Ok(()),
+                        _ => Err(Error::AltSyscallError),
+                    }
                 }
-            }
-        })
+            })
     }
 
     fn set_additional_gids(&self) -> Result<(), Error> {
@@ -192,21 +194,36 @@ impl Container {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
         self.set_additional_gids()?;
-        self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_in_child())?;
-        self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
+        self.net_namespace
+            .as_ref()
+            .map_or(Ok(()), |n| n.configure_in_child())?;
+        self.cgroup_namespace
+            .as_ref()
+            .map_or(Ok(()), |c| c.enter())?;
         //TODO(dgreid) - pass callback in to mount_namespace to setup devices
-        self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter(|rootpath| {
-                if self.device_config.as_ref().map_or(Ok(()), | ref d |
-                    d.setup_in_namespace(&rootpath.join("dev"),
-                                         Some(&PathBuf::from("/dev")))).is_err() {
+        self.mount_namespace
+            .as_ref()
+            .map_or(Ok(()), |m| {
+                m.enter(|rootpath| {
+                    if self.device_config
+                           .as_ref()
+                           .map_or(Ok(()), |ref d| {
+                        d.setup_in_namespace(&rootpath.join("dev"), Some(&PathBuf::from("/dev")))
+                    })
+                           .is_err() {
                         return Err(());
-                }
-                Ok(())
-            }))?;
-        self.sysctls.as_ref().map_or(Ok(()), |s| s.configure())?;
+                    }
+                    Ok(())
+                })
+            })?;
+        self.sysctls
+            .as_ref()
+            .map_or(Ok(()), |s| s.configure())?;
         nix::unistd::sethostname(&self.name)?;
         self.enter_alt_syscall_table()?;
-        self.seccomp_jail.as_ref().map_or(Ok(()), |s| s.enter())?;
+        self.seccomp_jail
+            .as_ref()
+            .map_or(Ok(()), |s| s.enter())?;
         Ok(())
     }
 
@@ -236,8 +253,12 @@ impl Container {
     }
 
     pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), Error> {
-        self.user_namespace.as_ref().map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))?;
-        self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_for_pid(self.pid))?;
+        self.user_namespace
+            .as_ref()
+            .map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))?;
+        self.net_namespace
+            .as_ref()
+            .map_or(Ok(()), |n| n.configure_for_pid(self.pid))?;
 
         for cgroup in &self.cgroups {
             cgroup.configure()?;

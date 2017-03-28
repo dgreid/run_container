@@ -73,8 +73,7 @@ impl CGroupConfiguration for CpuCGroupConfiguration {
     }
 }
 
-pub struct CpuAcctCGroupConfiguration {
-}
+pub struct CpuAcctCGroupConfiguration {}
 
 impl CpuAcctCGroupConfiguration {
     pub fn new() -> Self {
@@ -134,16 +133,16 @@ impl CGroupConfiguration for CpuSetCGroupConfiguration {
     fn configure(&self, dir: &CGroupDirectory) -> Result<(), Error> {
         dir.write_file("cpus",
                         &self.cpus
-                            .iter()
-                            .map(|c| c.to_string())
-                            .collect::<Vec<String>>()
-                            .join(","))?;
+                             .iter()
+                             .map(|c| c.to_string())
+                             .collect::<Vec<String>>()
+                             .join(","))?;
         dir.write_file("mems",
                         &self.mems
-                            .iter()
-                            .map(|c| c.to_string())
-                            .collect::<Vec<String>>()
-                            .join(","))?;
+                             .iter()
+                             .map(|c| c.to_string())
+                             .collect::<Vec<String>>()
+                             .join(","))?;
         Ok(())
     }
 
@@ -182,14 +181,14 @@ impl CGroupDeviceConfig {
         }
 
         Ok(CGroupDeviceConfig {
-            major: major,
-            minor: minor,
-            allow: allow,
-            read: read,
-            write: write,
-            modify: modify,
-            dev_type: dev_type,
-        })
+               major: major,
+               minor: minor,
+               allow: allow,
+               read: read,
+               write: write,
+               modify: modify,
+               dev_type: dev_type,
+           })
     }
 
     pub fn access_string(&self) -> String {
@@ -277,8 +276,7 @@ impl CGroupConfiguration for DevicesCGroupConfiguration {
     }
 }
 
-pub struct FreezerCGroupConfiguration {
-}
+pub struct FreezerCGroupConfiguration {}
 
 impl FreezerCGroupConfiguration {
     pub fn new() -> Self {

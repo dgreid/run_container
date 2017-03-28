@@ -93,7 +93,7 @@ impl MountNamespace {
         for m in self.mounts.iter() {
             let mut target = self.root.clone();
             target.push(m.target.as_path());
-	    self.prepare_mount_target(&m.source, &target)?;
+            self.prepare_mount_target(&m.source, &target)?;
             try!(nix::mount::mount(m.source.as_ref(),
                                    target.as_path(),
                                    m.fstype.as_ref().map(|t| &**t),
@@ -106,18 +106,22 @@ impl MountNamespace {
         Ok(())
     }
 
-    fn prepare_mount_target(&self, source: &Option<PathBuf>, target: &PathBuf)
-            -> Result<(), MountError> {
+    fn prepare_mount_target(&self,
+                            source: &Option<PathBuf>,
+                            target: &PathBuf)
+                            -> Result<(), MountError> {
         if target.exists() {
             return Ok(());
         }
         if let &Some(ref s) = source {
             if s.exists() && !s.is_dir() {
-                OpenOptions::new().create(true).write(true).open(target.as_path())?;
+                OpenOptions::new().create(true)
+                    .write(true)
+                    .open(target.as_path())?;
                 return Ok(());
             }
         }
-	fs::create_dir(target.as_path())?;
+        fs::create_dir(target.as_path())?;
         Ok(())
     }
 
@@ -210,7 +214,8 @@ mod test {
         let options = Vec::new();
 
         let mut m = MountNamespace::new(root_path);
-        assert_eq!(m.add_mount(Some(source), target, fstype, MS_BIND, options).is_ok(),
+        assert_eq!(m.add_mount(Some(source), target, fstype, MS_BIND, options)
+                       .is_ok(),
                    false);
     }
 
@@ -229,7 +234,11 @@ mod test {
         let tmp_dir2 = TempDir::new("/tmp/filedir").unwrap();
         let mut file_source = PathBuf::from(tmp_dir2.path());
         file_source.push("test_source");
-        OpenOptions::new().create(true).write(true).open(file_source.as_path()).unwrap();
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(file_source.as_path())
+            .unwrap();
 
         let pid = clone(Box::new(move || {
             let target = PathBuf::from("one");
@@ -241,11 +250,17 @@ mod test {
             let options2 = Vec::new();
 
             let mut m = MountNamespace::new(root_path.to_path_buf());
-            m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options).unwrap();
-            m.add_mount(None, target2, fstype2, MS_REC, options2).unwrap();
-            m.add_mount(Some(file_source.clone()), PathBuf::from("/three"),
-                        None, MS_BIND | MS_REC, Vec::new()).unwrap();
-            assert_eq!(m.enter(|_| {Ok(())}).is_ok(), true);
+            m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options)
+                .unwrap();
+            m.add_mount(None, target2, fstype2, MS_REC, options2)
+                .unwrap();
+            m.add_mount(Some(file_source.clone()),
+                           PathBuf::from("/three"),
+                           None,
+                           MS_BIND | MS_REC,
+                           Vec::new())
+                .unwrap();
+            assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
             assert!(PathBuf::from("/one").is_dir());
             assert!(PathBuf::from("/two").is_dir());
             assert!(PathBuf::from("/three").is_file());
@@ -254,7 +269,7 @@ mod test {
                         &mut stack,
                         CLONE_NEWUSER,
                         None)
-            .unwrap();
+                .unwrap();
         wait_child_exit(pid);
     }
 
@@ -273,15 +288,16 @@ mod test {
             let options = vec!["size=16k".to_owned()];
 
             let mut m = MountNamespace::new(root_path.to_path_buf());
-            m.add_mount(Some(source), target, fstype, MS_REC, options).unwrap();
-            assert_eq!(m.enter(|_| {Ok(())}).is_ok(), true);
+            m.add_mount(Some(source), target, fstype, MS_REC, options)
+                .unwrap();
+            assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
             assert!(PathBuf::from("/tmpfs").exists());
             0
         }),
                         &mut stack,
                         CLONE_NEWUSER,
                         None)
-            .unwrap();
+                .unwrap();
         wait_child_exit(pid);
     }
 }

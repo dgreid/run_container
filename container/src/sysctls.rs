@@ -18,20 +18,20 @@ impl Sysctls {
     }
 
     pub fn configure(&self) -> Result<(), Error> {
-	for (key, value) in &self.sysctls {
+        for (key, value) in &self.sysctls {
             self.write_sysctl_file(&key, &value)?;
-	}
-	Ok(())
+        }
+        Ok(())
     }
 
     fn write_sysctl_file(&self, key: &str, value: &str) -> Result<(), Error> {
-	let mut ctl_path = PathBuf::from("/proc/sys");
-	ctl_path.push(key.split('.').collect::<Vec<&str>>().join("/"));
-	let mut ctl_file = match fs::File::create(ctl_path.as_path()) {
+        let mut ctl_path = PathBuf::from("/proc/sys");
+        ctl_path.push(key.split('.').collect::<Vec<&str>>().join("/"));
+        let mut ctl_file = match fs::File::create(ctl_path.as_path()) {
             Ok(f) => f,
             Err(e) => return Err(Error::SysctlConfigError(key.to_string(), e)),
         };
-	match ctl_file.write_all(value.as_bytes()) {
+        match ctl_file.write_all(value.as_bytes()) {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::SysctlConfigError(key.to_string(), e)),
         }
