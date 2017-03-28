@@ -16,7 +16,8 @@ use container::cgroup::cgroup_configuration::{self, CGroupConfiguration,
                                               DevicesCGroupConfiguration,
                                               FreezerCGroupConfiguration};
 use container::cgroup_namespace::CGroupNamespace;
-use container::mount_namespace::*;
+use container::devices::{self, DeviceConfig, DeviceType};
+use container::mount_namespace::{MountError, MountNamespace};
 use container::net_namespace::{EmptyNetNamespace, NetNamespace};
 use container::seccomp_jail::{self, SeccompConfig, SeccompJail};
 use container::sysctls::Sysctls;
@@ -45,6 +46,7 @@ pub enum Error {
     ContainerError(container::container::Error),
     CGroupError(cgroup::Error),
     CGroupConfigError(cgroup_configuration::Error),
+    DeviceError(devices::Error),
     ParseIntError(std::num::ParseIntError),
     InvalidDeviceType,
     NoDevicesFound,
@@ -98,6 +100,12 @@ impl From<cgroup_configuration::Error> for Error {
     }
 }
 
+impl From<devices::Error> for Error {
+    fn from(err: devices::Error) -> Error {
+        Error::DeviceError(err)
+    }
+}
+
 pub struct ContainerConfig {
     name: String,
     alt_syscall_table: Option<CString>,
@@ -107,6 +115,7 @@ pub struct ContainerConfig {
     cgroup_parent: String,
     cgroup_configs: Vec<Box<CGroupConfiguration>>,
     cgroup_namespace: Option<CGroupNamespace>,
+    device_config: Option<devices::DeviceConfig>,
     mount_namespace: Option<MountNamespace>,
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
@@ -127,6 +136,7 @@ impl ContainerConfig {
             cgroup_parent: "".to_string(),
             cgroup_configs: Vec::new(),
             cgroup_namespace: None,
+            device_config: None,
             mount_namespace: None,
             user_namespace: None,
             net_namespace: None,
@@ -171,6 +181,13 @@ impl ContainerConfig {
                           cgroup_configs: Vec<Box<CGroupConfiguration>>)
                           -> ContainerConfig {
         self.cgroup_configs = cgroup_configs;
+        self
+    }
+
+    pub fn device_config(mut self,
+                         device_config: DeviceConfig)
+                         -> ContainerConfig {
+        self.device_config = Some(device_config);
         self
     }
 
@@ -240,13 +257,14 @@ impl ContainerConfig {
                                    self.argv,
                                    cgroups,
                                    self.cgroup_namespace,
+                                   self.device_config,
                                    self.mount_namespace,
                                    self.net_namespace,
                                    self.user_namespace,
                                    self.additional_gids,
                                    self.seccomp_jail,
 				   self.sysctls,
-                                   false);
+                                   true);
         c.start()?;
         Ok(c)
     }
@@ -278,10 +296,12 @@ fn container_from_oci(config: OciConfig,
     let linux = config.linux.ok_or(Error::NoLinuxNodeFoundError)?;
 
     let mnt_ns = if oci_has_namespace(&linux, "mount") {
-        Some(mount_ns_from_oci(config.mounts, bind_mounts, &linux.devices, root_path)?)
+        Some(mount_ns_from_oci(config.mounts, bind_mounts, root_path)?)
     } else {
         None
     };
+
+    let device_config = device_config_from_oci(&linux.devices)?;
 
     // TODO(dgreid) - Should user namespace really be optional?
     let user_ns = user_ns_from_oci(&linux.uid_mappings,
@@ -322,6 +342,7 @@ fn container_from_oci(config: OciConfig,
         .argv(argv)
         .cgroup_namespace(cgroup_ns)
         .cgroup_configs(cgroup_configs)
+        .device_config(device_config)
         .mount_namespace(mnt_ns)
         .user_namespace(Some(user_ns))
         .uid(Some(config.process.user.uid as uid_t))
@@ -345,7 +366,6 @@ fn oci_has_namespace(linux: &OciLinux, namespace_type: &str) -> bool {
 
 fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                      bind_mounts: Vec<(String, String)>,
-                     devices: &Option<Vec<OciLinuxDevice>>,
                      root_path: PathBuf)
                      -> Result<MountNamespace, Error> {
     let mut mnt_ns = MountNamespace::new(root_path);
@@ -385,16 +405,24 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                               MS_BIND,
                               Vec::new()));
     }
-    if let Some(ref devices) = *devices {
-        for d in devices {
-            mnt_ns.add_mount(Some(PathBuf::from(&d.path)),
-                             PathBuf::from(&d.path.trim_matches('/')),
-                             None,
-                             MS_BIND,
-                             Vec::new())?;
+    Ok(mnt_ns)
+}
+
+fn device_config_from_oci(dev_list: &Option<Vec<OciLinuxDevice>>) ->
+        Result<devices::DeviceConfig, Error> {
+    let mut devices = devices::DeviceConfig::new();
+    if let Some(ref dev_list) = *dev_list {
+        for d in dev_list {
+            let dev_type = match d.dev_type.as_ref() {
+                "b" => DeviceType::Block,
+                "c" => DeviceType::Character,
+                _ => return Err(Error::InvalidDeviceType),
+            };
+            devices.add_device(dev_type, &PathBuf::from(&d.path), d.major,
+                               d.minor, d.file_mode, d.uid, d.gid)?;
         }
     }
-    Ok(mnt_ns)
+    Ok(devices)
 }
 
 fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,

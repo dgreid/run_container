@@ -2,6 +2,7 @@ extern crate nix;
 
 use cgroup::cgroup::{self, CGroup};
 use cgroup_namespace::{self, CGroupNamespace};
+use devices::{self, DeviceConfig};
 use mount_namespace::*;
 use net_namespace;
 use net_namespace::NetNamespace;
@@ -19,6 +20,7 @@ use self::nix::sys::wait;
 use self::nix::sys::wait::WaitStatus;
 use std::ffi::CString;
 use std::io;
+use std::path::PathBuf;
 
 pub struct Container {
     name: String,
@@ -26,6 +28,7 @@ pub struct Container {
     argv: Vec<CString>,
     cgroups: Vec<CGroup>,
     cgroup_namespace: Option<CGroupNamespace>,
+    device_config: Option<DeviceConfig>,
     mount_namespace: Option<MountNamespace>,
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
@@ -42,6 +45,7 @@ pub enum Error {
     Nix(nix::Error),
     WaitPidFailed,
     InvalidMountTarget,
+    PostSetupCallback,
     NetworkNamespaceConfigError,
     CGroupCreateError,
     InvalidCGroup,
@@ -50,6 +54,7 @@ pub enum Error {
     SeccompError(seccomp_jail::Error),
     SysctlError(sysctls::Error),
     CGroupFailure(cgroup::Error),
+    DeviceFailure(devices::Error),
 }
 
 impl From<nix::Error> for Error {
@@ -64,12 +69,19 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<devices::Error> for Error {
+    fn from(err: devices::Error) -> Error {
+        Error::DeviceFailure(err)
+    }
+}
+
 impl From<MountError> for Error {
     fn from(err: MountError) -> Error {
         match err {
             MountError::Io(e) => Error::Io(e),
             MountError::Nix(e) => Error::Nix(e),
             MountError::InvalidTargetPath => Error::InvalidMountTarget,
+            MountError::PostSetupCallback => Error::PostSetupCallback,
         }
     }
 }
@@ -117,6 +129,7 @@ impl Container {
                argv: Vec<CString>,
                cgroups: Vec<CGroup>,
                cgroup_namespace: Option<CGroupNamespace>,
+               device_config: Option<DeviceConfig>,
                mount_namespace: Option<MountNamespace>,
                net_namespace: Option<Box<NetNamespace>>,
                user_namespace: Option<UserNamespace>,
@@ -131,6 +144,7 @@ impl Container {
             argv: argv,
             cgroups: cgroups,
             cgroup_namespace: cgroup_namespace,
+            device_config: device_config,
             mount_namespace: mount_namespace,
             net_namespace: net_namespace,
             user_namespace: user_namespace,
@@ -180,7 +194,15 @@ impl Container {
         self.set_additional_gids()?;
         self.net_namespace.as_ref().map_or(Ok(()), |n| n.configure_in_child())?;
         self.cgroup_namespace.as_ref().map_or(Ok(()), |c| c.enter())?;
-        self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter())?;
+        //TODO(dgreid) - pass callback in to mount_namespace to setup devices
+        self.mount_namespace.as_ref().map_or(Ok(()), |m| m.enter(|rootpath| {
+                if self.device_config.as_ref().map_or(Ok(()), | ref d |
+                    d.setup_in_namespace(&rootpath.join("dev"),
+                                         Some(&PathBuf::from("/dev")))).is_err() {
+                        return Err(());
+                }
+                Ok(())
+            }))?;
         self.sysctls.as_ref().map_or(Ok(()), |s| s.configure())?;
         nix::unistd::sethostname(&self.name)?;
         self.enter_alt_syscall_table()?;
@@ -235,8 +257,16 @@ impl Container {
     }
 
     pub fn start(&mut self) -> Result<(), Error> {
-        let sync_pipe = SyncPipe::new()?;
+        let mode = if self.privileged {
+            devices::NodeCreateMethod::MakeNode
+        } else {
+            devices::NodeCreateMethod::BindMount
+        };
+        self.device_config
+            .as_mut()
+            .map_or(Ok(()), |ref mut d| d.pre_fork_setup(mode))?;
 
+        let sync_pipe = SyncPipe::new()?;
         let pid = self.do_clone()?;
         match pid {
             0 => {
@@ -336,6 +366,7 @@ mod test {
                                    argv,
                                    Vec::new(),
                                    Some(cgroup_namespace),
+                                   None,
                                    Some(mount_namespace),
                                    Some(Box::new(EmptyNetNamespace::new())),
                                    Some(user_namespace),

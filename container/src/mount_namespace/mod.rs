@@ -15,6 +15,7 @@ pub enum MountError {
     Io(io::Error),
     Nix(nix::Error),
     InvalidTargetPath,
+    PostSetupCallback,
 }
 
 impl From<io::Error> for MountError {
@@ -73,13 +74,21 @@ impl MountNamespace {
         Ok(())
     }
 
-    pub fn enter(&self) -> Result<(), MountError> {
+    // post_setup is called after mounts are made but before pivot root
+    //  The path to the root fs is passed in to post_setup.
+    pub fn enter<F>(&self, post_setup: F) -> Result<(), MountError>
+        where F: Fn(&Path) -> Result<(), ()>
+    {
         if !self.root.exists() {
             return Err(MountError::Nix(nix::Error::InvalidPath));
         }
 
         try!(nix::sched::unshare(nix::sched::CLONE_NEWNS));
         try!(self.remount_private());
+
+        if post_setup(&self.root).is_err() {
+            return Err(MountError::PostSetupCallback);
+        }
 
         for m in self.mounts.iter() {
             let mut target = self.root.clone();
@@ -236,7 +245,7 @@ mod test {
             m.add_mount(None, target2, fstype2, MS_REC, options2).unwrap();
             m.add_mount(Some(file_source.clone()), PathBuf::from("/three"),
                         None, MS_BIND | MS_REC, Vec::new()).unwrap();
-            assert_eq!(m.enter().is_ok(), true);
+            assert_eq!(m.enter(|_| {Ok(())}).is_ok(), true);
             assert!(PathBuf::from("/one").is_dir());
             assert!(PathBuf::from("/two").is_dir());
             assert!(PathBuf::from("/three").is_file());
@@ -265,7 +274,7 @@ mod test {
 
             let mut m = MountNamespace::new(root_path.to_path_buf());
             m.add_mount(Some(source), target, fstype, MS_REC, options).unwrap();
-            assert_eq!(m.enter().is_ok(), true);
+            assert_eq!(m.enter(|_| {Ok(())}).is_ok(), true);
             assert!(PathBuf::from("/tmpfs").exists());
             0
         }),

@@ -1,6 +1,7 @@
 pub mod cgroup;
 pub mod cgroup_namespace;
 pub mod container;
+pub mod devices;
 pub mod mount_namespace;
 pub mod net_namespace;
 pub mod seccomp_jail;
