@@ -451,7 +451,14 @@ mod tests {
                             {
                                 "allow": false,
                                 "access": "rwm"
-                            }
+                            },
+			    {
+				"allow": true,
+				"type": "c",
+				"major": 10,
+				"minor": 229,
+				"access": "rw"
+			    }
                         ],
                         "network": {
                             "classID": 1048577,
@@ -684,5 +691,20 @@ mod tests {
             })
                        .collect::<Vec<&OciLinuxNamespace>>()
                        .len());
+	// Resources
+	let resources = basic_config.linux.as_ref().unwrap().resources.as_ref().unwrap();
+	let devices = resources.devices.as_ref().unwrap();
+	let all_deny = devices.get(0).unwrap();
+	assert!(!all_deny.allow);
+	assert_eq!(all_deny.access, Some("rwm".to_string()));
+	assert_eq!(all_deny.dev_type, None);
+	assert_eq!(all_deny.major, None);
+	assert_eq!(all_deny.minor, None);
+	let rw_10_229 = devices.get(1).unwrap();
+	assert!(rw_10_229.allow);
+	assert_eq!(rw_10_229.access, Some("rw".to_string()));
+	assert_eq!(rw_10_229.dev_type, Some("c".to_string()));
+	assert_eq!(rw_10_229.major, Some(10));
+	assert_eq!(rw_10_229.minor, Some(229));
     }
 }
