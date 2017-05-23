@@ -86,8 +86,7 @@ impl CGroupDirectory {
 impl Drop for CGroupDirectory {
     fn drop(&mut self) {
         match fs::remove_dir(self.path.as_path()) {
-            Ok(()) => (),
-            Err(_) => (),
+            Ok(()) | Err(_) => (),
         }
     }
 }

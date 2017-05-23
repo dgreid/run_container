@@ -9,7 +9,7 @@ extern crate container;
 mod oci_config;
 
 use container::container::Container;
-use container::cgroup::cgroup::{self, CGroup};
+use container::cgroup::{self, CGroup};
 use container::cgroup::cgroup_configuration::{self, CGroupConfiguration,
                                               CpuAcctCGroupConfiguration, CpuCGroupConfiguration,
                                               CpuSetCGroupConfiguration,

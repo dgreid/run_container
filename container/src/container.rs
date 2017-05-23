@@ -1,6 +1,6 @@
 extern crate nix;
 
-use cgroup::cgroup::{self, CGroup};
+use cgroup::{self, CGroup};
 use cgroup_namespace::{self, CGroupNamespace};
 use devices::{self, DeviceConfig};
 use mount_namespace::*;
@@ -18,6 +18,7 @@ use self::nix::sys::ioctl::libc::pid_t;
 use self::nix::sched::*;
 use self::nix::sys::wait;
 use self::nix::sys::wait::WaitStatus;
+use std;
 use std::ffi::CString;
 use std::io;
 use std::path::PathBuf;
@@ -56,6 +57,7 @@ pub enum Error {
     CGroupFailure(cgroup::Error),
     DeviceFailure(devices::Error),
 }
+pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<nix::Error> for Error {
     fn from(err: nix::Error) -> Error {
@@ -160,7 +162,7 @@ impl Container {
         &self.name
     }
 
-    fn enter_alt_syscall_table(&self) -> Result<(), Error> {
+    fn enter_alt_syscall_table(&self) -> Result<()> {
         self.alt_syscall_table
             .as_ref()
             .map_or(Ok(()), |t| {
@@ -176,7 +178,7 @@ impl Container {
             })
     }
 
-    fn set_additional_gids(&self) -> Result<(), Error> {
+    fn set_additional_gids(&self) -> Result<()> {
         if self.additional_groups.is_empty() {
             return Ok(());
         }
@@ -190,7 +192,7 @@ impl Container {
         }
     }
 
-    fn enter_jail(&self) -> Result<(), Error> {
+    fn enter_jail(&self) -> Result<()> {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
         self.set_additional_gids()?;
@@ -200,17 +202,17 @@ impl Container {
         self.cgroup_namespace
             .as_ref()
             .map_or(Ok(()), |c| c.enter())?;
-        //TODO(dgreid) - pass callback in to mount_namespace to setup devices
         self.mount_namespace
             .as_ref()
             .map_or(Ok(()), |m| {
                 m.enter(|rootpath| {
-                    if self.device_config
-                           .as_ref()
-                           .map_or(Ok(()), |ref d| {
-                        d.setup_in_namespace(&rootpath.join("dev"), Some(&PathBuf::from("/dev")))
-                    })
-                           .is_err() {
+                    let setup_result = self.device_config
+                        .as_ref()
+                        .map_or(Ok(()), |d| {
+                            d.setup_in_namespace(&rootpath.join("dev"),
+                                                 Some(&PathBuf::from("/dev")))
+                        });
+                    if setup_result.is_err() {
                         return Err(());
                     }
                     Ok(())
@@ -236,7 +238,7 @@ impl Container {
         }
     }
 
-    fn do_clone(&self) -> Result<pid_t, nix::Error> {
+    fn do_clone(&self) -> std::result::Result<pid_t, nix::Error> {
         nix::unistd::setpgid(0, 0)?;
 
         unsafe {
@@ -252,7 +254,7 @@ impl Container {
         }
     }
 
-    pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<(), Error> {
+    pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<()> {
         self.user_namespace
             .as_ref()
             .map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))?;
@@ -277,7 +279,7 @@ impl Container {
         panic!("Failed to execute program");
     }
 
-    pub fn start(&mut self) -> Result<(), Error> {
+    pub fn start(&mut self) -> Result<()> {
         let mode = if self.privileged {
             devices::NodeCreateMethod::MakeNode
         } else {
@@ -310,14 +312,10 @@ impl Container {
         Ok(())
     }
 
-    pub fn wait(&mut self) -> Result<(), Error> {
+    pub fn wait(&mut self) -> Result<()> {
         loop {
             match wait::waitpid(self.pid, Some(wait::__WALL)) {
-                Ok(WaitStatus::Exited(..)) => {
-                    self.pid = -1;
-                    return Ok(());
-                }
-                Ok(WaitStatus::Signaled(..)) => {
+                Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
                     self.pid = -1;
                     return Ok(());
                 }
