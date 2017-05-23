@@ -372,6 +372,7 @@ mod test {
     }
 
     #[test]
+    #[ignore] // Can't run without root.
     fn start_test() {
         let temp_cgdir = TempDir::new("fake_cg").unwrap();
         let argv = vec![CString::new("/bin/ls").unwrap(), CString::new("-l").unwrap()];
