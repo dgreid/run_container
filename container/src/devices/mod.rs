@@ -7,8 +7,9 @@ use devices::device::Device;
 pub use devices::device::DeviceType;
 
 use self::tempdir::TempDir;
-use std::io;
 use self::nix::mount::{MS_BIND, MS_REC, MS_NOSUID};
+
+use std::io;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -38,6 +39,7 @@ impl From<nix::Error> for Error {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum NodeCreateMethod {
     MakeNode,
     BindMount,
@@ -76,9 +78,8 @@ impl DeviceConfig {
     // a nop.
     pub fn pre_fork_setup(&mut self, method: NodeCreateMethod) -> Result<(), Error> {
         self.method = method;
-        match self.method {
-            NodeCreateMethod::MakeNode => (),
-            NodeCreateMethod::BindMount => return Ok(()),
+        if method == NodeCreateMethod::BindMount {
+            return Ok(());
         }
 
         let dev_dir = TempDir::new("container_dev")?;

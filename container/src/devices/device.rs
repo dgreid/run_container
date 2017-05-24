@@ -16,6 +16,7 @@ pub enum Error {
     DevDirectory(io::Error),
     PathNullError(NulError),
     DevicePath(StripPrefixError),
+    InvalidDevicePath,
 }
 
 impl From<nix::Error> for Error {
@@ -88,6 +89,9 @@ impl Device {
         if self.minor.is_none() {
             return Err(Error::NoMinor);
         }
+
+        let parent_dir = dev_path.parent().ok_or(Error::InvalidDevicePath)?;
+        fs::create_dir_all(parent_dir)?;
 
         nix::sys::stat::mknod(&dev_path,
                               Device::flag_from_type(&self.dev_type),
