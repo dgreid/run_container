@@ -452,13 +452,13 @@ mod tests {
                                 "allow": false,
                                 "access": "rwm"
                             },
-			    {
-				"allow": true,
-				"type": "c",
-				"major": 10,
-				"minor": 229,
-				"access": "rw"
-			    }
+                            {
+                                "allow": true,
+                                "type": "c",
+                                "major": 10,
+                                "minor": 229,
+                                "access": "rw"
+                            }
                         ],
                         "network": {
                             "classID": 1048577,

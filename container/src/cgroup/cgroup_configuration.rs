@@ -206,7 +206,7 @@ impl CGroupDeviceConfig {
                 self.dev_type,
                 self.major.map_or("*".to_string(), |m| m.to_string()),
                 self.minor.map_or("*".to_string(), |m| m.to_string()),
-                self.dev_type)
+                perms)
     }
 }
 
