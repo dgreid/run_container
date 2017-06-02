@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate nix;
 
 use cgroup::{self, CGroup};
@@ -14,7 +15,7 @@ use sync_pipe::*;
 use syscall_defines::linux::LinuxSyscall::*;
 use user_namespace::UserNamespace;
 
-use self::nix::sys::ioctl::libc::pid_t;
+use self::libc::pid_t;
 use self::nix::sched::*;
 use self::nix::sys::wait;
 use self::nix::sys::wait::WaitStatus;
