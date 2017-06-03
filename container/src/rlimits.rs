@@ -34,41 +34,31 @@ pub enum RLimit {
     RLIMIT_RTTIME = 15, // timeout for RT tasks in us
 }
 
-#[derive(Clone, Copy, Hash, PartialEq)]
-pub struct RLimitVal {
-    cur: u64,
-    max: u64,
-}
-
-impl RLimitVal {
-    pub fn new(cur: u64, max: u64) -> RLimitVal {
-        RLimitVal { cur: cur, max: max }
-    }
-}
-
+#[derive(Default)]
 pub struct RLimits {
     rlimits: HashMap<RLimit, libc::rlimit64>,
 }
 
 impl RLimits {
-    pub fn new(rlimits_in: HashMap<String, RLimitVal>) -> Result<RLimits> {
-        let mut rlimits: HashMap<RLimit, libc::rlimit64> = HashMap::new();
-        for (key, val) in rlimits_in {
-            let rlimit = rlimit_from_name(&key)?;
-            if rlimits.contains_key(&rlimit) {
-                return Err(Error::DuplicateLimit);
-            }
-            rlimits.insert(rlimit, libc::rlimit64 { rlim_cur: val.cur, rlim_max: val.max });
-        }
-        Ok(RLimits { rlimits: rlimits })
+    pub fn new() -> RLimits {
+        RLimits { rlimits: HashMap::new() }
     }
 
-    pub fn configure(&self) -> Result<()> {
+    pub fn add_limit(&mut self, name: &str, cur: u64, max: u64) -> Result<()> {
+        let rlimit = rlimit_from_name(&name)?;
+        if self.rlimits.contains_key(&rlimit) {
+            return Err(Error::DuplicateLimit);
+        }
+        self.rlimits.insert(rlimit, libc::rlimit64 { rlim_cur: cur, rlim_max: max });
+        Ok(())
+    }
+
+    pub fn configure(&self, pid: libc::pid_t) -> Result<()> {
         for (rlim, val) in &self.rlimits {
             let ret = unsafe {
                 // Calling prlimit64 is safe here as it doesn't read anything other
                 // than memory and setting limits doesn't affect memory safety.
-                libc::prlimit64(0, *rlim as libc::c_int, val as *const _, null_mut())
+                libc::prlimit64(pid, *rlim as libc::c_int, val as *const _, null_mut())
             };
             if ret != 0 {
                 return Err(Error::PrLimitFailed);

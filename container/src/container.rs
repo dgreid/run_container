@@ -7,6 +7,7 @@ use devices::{self, DeviceConfig};
 use mount_namespace::*;
 use net_namespace;
 use net_namespace::NetNamespace;
+use rlimits::{self, RLimits};
 use seccomp_jail;
 use seccomp_jail::SeccompJail;
 use sysctls;
@@ -34,6 +35,7 @@ pub struct Container {
     mount_namespace: Option<MountNamespace>,
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
+    rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
     sysctls: Option<Sysctls>,
     additional_groups: Vec<u32>,
@@ -52,6 +54,7 @@ pub enum Error {
     CGroupCreateError,
     InvalidCGroup,
     AltSyscallError,
+    RLimitsError(rlimits::Error),
     SetGroupsError,
     SeccompError(seccomp_jail::Error),
     SysctlError(sysctls::Error),
@@ -137,6 +140,7 @@ impl Container {
                net_namespace: Option<Box<NetNamespace>>,
                user_namespace: Option<UserNamespace>,
                additional_groups: Vec<u32>,
+               rlimits: Option<RLimits>,
                seccomp_jail: Option<SeccompJail>,
                sysctls: Option<Sysctls>,
                privileged: bool)
@@ -152,6 +156,7 @@ impl Container {
             net_namespace: net_namespace,
             user_namespace: user_namespace,
             additional_groups: additional_groups,
+            rlimits: rlimits,
             seccomp_jail: seccomp_jail,
             sysctls: sysctls,
             privileged: privileged,
@@ -267,6 +272,10 @@ impl Container {
             cgroup.configure()?;
             cgroup.add_pid(self.pid)?;
         }
+
+        self.rlimits
+            .as_ref()
+            .map_or(Ok(()), |r| r.configure(self.pid)).map_err(Error::RLimitsError)?;
 
         sync_pipe.signal()?;
         Ok(())
@@ -392,6 +401,7 @@ mod test {
                                    Some(Box::new(EmptyNetNamespace::new())),
                                    Some(user_namespace),
                                    Vec::new(),
+                                   None,
                                    Some(seccomp_jail),
                                    None,
                                    true);

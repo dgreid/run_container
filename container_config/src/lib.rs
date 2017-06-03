@@ -19,6 +19,7 @@ use container::cgroup_namespace::CGroupNamespace;
 use container::devices::{self, DeviceConfig, DeviceType};
 use container::mount_namespace::{MountError, MountNamespace};
 use container::net_namespace::{EmptyNetNamespace, NetNamespace};
+use container::rlimits::{self, RLimits};
 use container::seccomp_jail::{self, SeccompConfig, SeccompJail};
 use container::sysctls::Sysctls;
 use container::user_namespace::UserNamespace;
@@ -48,9 +49,11 @@ pub enum Error {
     CGroupConfigError(cgroup_configuration::Error),
     DeviceError(devices::Error),
     ParseIntError(std::num::ParseIntError),
+    RLimitError(rlimits::Error),
     InvalidDeviceType,
     NoDevicesFound,
 }
+pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
@@ -119,6 +122,7 @@ pub struct ContainerConfig {
     mount_namespace: Option<MountNamespace>,
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
+    rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
     additional_gids: Vec<u32>,
     uid: Option<uid_t>,
@@ -140,6 +144,7 @@ impl ContainerConfig {
             mount_namespace: None,
             user_namespace: None,
             net_namespace: None,
+            rlimits: None,
             seccomp_jail: None,
             additional_gids: Vec::new(),
             uid: None,
@@ -223,6 +228,11 @@ impl ContainerConfig {
         self
     }
 
+    pub fn rlimits(mut self, rlimits: Option<RLimits>) -> ContainerConfig {
+        self.rlimits = rlimits;
+        self
+    }
+
     pub fn seccomp_jail(mut self, seccomp_jail: Option<SeccompJail>) -> ContainerConfig {
         self.seccomp_jail = seccomp_jail;
         self
@@ -243,7 +253,7 @@ impl ContainerConfig {
         self
     }
 
-    pub fn start(self) -> Result<Container, Error> {
+    pub fn start(self) -> Result<Container> {
         let mut cgroups = Vec::new();
         for cgconfig in self.cgroup_configs {
             cgroups.push(CGroup::new(&self.cgroup_name,
@@ -262,8 +272,9 @@ impl ContainerConfig {
                                    self.net_namespace,
                                    self.user_namespace,
                                    self.additional_gids,
+                                   self.rlimits,
                                    self.seccomp_jail,
-				   self.sysctls,
+                                   self.sysctls,
                                    true);
         c.start()?;
         Ok(c)
@@ -272,7 +283,7 @@ impl ContainerConfig {
 
 pub fn container_config_from_oci_config_file(path: &Path,
                                              bind_mounts: Vec<(String, String)>)
-                                             -> Result<ContainerConfig, Error> {
+                                             -> Result<ContainerConfig> {
     let mut config_path = PathBuf::from(path);
     config_path.push("config.json");
     let config_file = File::open(&config_path)?;
@@ -284,7 +295,7 @@ pub fn container_config_from_oci_config_file(path: &Path,
 fn container_from_oci(config: OciConfig,
                       bind_mounts: Vec<(String, String)>,
                       path: &Path)
-                      -> Result<ContainerConfig, Error> {
+                      -> Result<ContainerConfig> {
     let hostname = config.hostname.unwrap_or("default".to_string());
     if !hostname_valid(&hostname) {
         return Err(Error::HostnameInvalid(hostname));
@@ -314,6 +325,12 @@ fn container_from_oci(config: OciConfig,
         .into_iter()
         .map(|a| CString::new(a.as_str()).unwrap())
         .collect();
+
+    let rlimits = if let Some(ref oci_rlim) = config.process.rlimits {
+        Some(rlimits_from_oci(oci_rlim)?)
+    } else {
+        None
+    };
 
     // TODO(dgreid) - Parse net namespace config.
     let net_ns: Option<Box<NetNamespace>> = if oci_has_namespace(&linux, "network") {
@@ -348,6 +365,7 @@ fn container_from_oci(config: OciConfig,
         .uid(Some(config.process.user.uid as uid_t))
         .net_namespace(net_ns)
         .additional_gids(additional_gids)
+        .rlimits(rlimits)
         .seccomp_jail(seccomp_jail))
 }
 
@@ -367,7 +385,7 @@ fn oci_has_namespace(linux: &OciLinux, namespace_type: &str) -> bool {
 fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                      bind_mounts: Vec<(String, String)>,
                      root_path: PathBuf)
-                     -> Result<MountNamespace, Error> {
+                     -> Result<MountNamespace> {
     let mut mnt_ns = MountNamespace::new(root_path);
     if let Some(mounts) = mounts_vec {
         for m in mounts.into_iter() {
@@ -409,7 +427,7 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
 }
 
 fn device_config_from_oci(dev_list: &Option<Vec<OciLinuxDevice>>) ->
-        Result<devices::DeviceConfig, Error> {
+        Result<devices::DeviceConfig> {
     let mut devices = devices::DeviceConfig::new();
     if let Some(ref dev_list) = *dev_list {
         for d in dev_list {
@@ -473,7 +491,7 @@ fn hostname_valid(hostname: &str) -> bool {
     return true;
 }
 
-fn seccomp_jail_from_oci(oci_seccomp: &OciSeccomp) -> Result<SeccompJail, Error> {
+fn seccomp_jail_from_oci(oci_seccomp: &OciSeccomp) -> Result<SeccompJail> {
     let mut seccomp_config = SeccompConfig::new(&oci_seccomp.default_action)?;
     for syscall in &oci_seccomp.syscalls {
         if let Some(ref args) = syscall.args {
@@ -492,7 +510,7 @@ fn seccomp_jail_from_oci(oci_seccomp: &OciSeccomp) -> Result<SeccompJail, Error>
     Ok(SeccompJail::new(&seccomp_config)?)
 }
 
-fn cgroups_from_oci(linux: &OciLinux) -> Result<Vec<Box<CGroupConfiguration>>, Error> {
+fn cgroups_from_oci(linux: &OciLinux) -> Result<Vec<Box<CGroupConfiguration>>> {
     let mut cgroups = Vec::new();
     if let Some(ref resources) = linux.resources {
         if let Some(ref devices) = resources.devices {
@@ -508,8 +526,17 @@ fn cgroups_from_oci(linux: &OciLinux) -> Result<Vec<Box<CGroupConfiguration>>, E
     Ok(cgroups)
 }
 
+fn rlimits_from_oci(oci_rlim: &Vec<OciRlimit>) -> Result<RLimits> {
+    let mut rlimits = RLimits::new();
+    for lim in oci_rlim {
+        rlimits.add_limit(&lim.limit_type, lim.soft as u64, lim.hard as u64)
+            .map_err(Error::RLimitError)?;
+    }
+    Ok(rlimits)
+}
+
 fn device_cgroup_config(devices: &Vec<OciLinuxCgroupDevice>)
-                        -> Result<Box<CGroupConfiguration>, Error> {
+                        -> Result<Box<CGroupConfiguration>> {
     if devices.is_empty() {
         return Err(Error::NoDevicesFound);
     }
@@ -530,7 +557,7 @@ fn device_cgroup_config(devices: &Vec<OciLinuxCgroupDevice>)
     Ok(devices_config)
 }
 
-fn cpu_cgroup_config(config: &OciLinuxCgroupCpu) -> Result<Box<CGroupConfiguration>, Error> {
+fn cpu_cgroup_config(config: &OciLinuxCgroupCpu) -> Result<Box<CGroupConfiguration>> {
     let mut cpu_config = Box::new(CpuCGroupConfiguration::new());
     cpu_config.shares(config.shares);
     cpu_config.quota(config.quota);
@@ -541,7 +568,7 @@ fn cpu_cgroup_config(config: &OciLinuxCgroupCpu) -> Result<Box<CGroupConfigurati
 }
 
 fn cpuset_cgroup_config(config: &OciLinuxCgroupCpu)
-                        -> Result<Box<CpuSetCGroupConfiguration>, Error> {
+                        -> Result<Box<CpuSetCGroupConfiguration>> {
     let mut cpuset_config = Box::new(CpuSetCGroupConfiguration::new());
     if let Some(ref cpus_string) = config.cpus {
         let cpus_vec: Vec<&str> = cpus_string.split(",").collect();
