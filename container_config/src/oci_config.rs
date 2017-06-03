@@ -297,7 +297,7 @@ mod tests {
                     "readonly": true
                 },
                 "process": {
-		    "terminal": true,
+                    "terminal": true,
                     "user": {
                         "uid": 0,
                         "gid": 0
