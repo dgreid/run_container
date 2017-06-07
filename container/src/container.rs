@@ -4,7 +4,7 @@ extern crate nix;
 use cgroup::{self, CGroup};
 use cgroup_namespace::{self, CGroupNamespace};
 use devices::{self, DeviceConfig};
-use mount_namespace::*;
+use mount_namespace::{self, MountNamespace};
 use net_namespace;
 use net_namespace::NetNamespace;
 use rlimits::{self, RLimits};
@@ -48,8 +48,7 @@ pub enum Error {
     Io(io::Error),
     Nix(nix::Error),
     WaitPidFailed,
-    InvalidMountTarget,
-    PostSetupCallback,
+    MountSetup(mount_namespace::Error),
     NetworkNamespaceConfigError,
     CGroupCreateError,
     InvalidCGroup,
@@ -78,17 +77,6 @@ impl From<io::Error> for Error {
 impl From<devices::Error> for Error {
     fn from(err: devices::Error) -> Error {
         Error::DeviceFailure(err)
-    }
-}
-
-impl From<MountError> for Error {
-    fn from(err: MountError) -> Error {
-        match err {
-            MountError::Io(e) => Error::Io(e),
-            MountError::Nix(e) => Error::Nix(e),
-            MountError::InvalidTargetPath => Error::InvalidMountTarget,
-            MountError::PostSetupCallback => Error::PostSetupCallback,
-        }
     }
 }
 
@@ -223,7 +211,8 @@ impl Container {
                     }
                     Ok(())
                 })
-            })?;
+            })
+            .map_err(Error::MountSetup)?;
         self.sysctls
             .as_ref()
             .map_or(Ok(()), |s| s.configure())?;

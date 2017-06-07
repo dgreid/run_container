@@ -17,7 +17,7 @@ use container::cgroup::cgroup_configuration::{self, CGroupConfiguration,
                                               FreezerCGroupConfiguration};
 use container::cgroup_namespace::CGroupNamespace;
 use container::devices::{self, DeviceConfig, DeviceType};
-use container::mount_namespace::{MountError, MountNamespace};
+use container::mount_namespace::{self, MountNamespace};
 use container::net_namespace::{EmptyNetNamespace, NetNamespace};
 use container::rlimits::{self, RLimits};
 use container::seccomp_jail::{self, SeccompConfig, SeccompJail};
@@ -39,7 +39,7 @@ use oci_config::*;
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    MountError(MountError),
+    MountSetup(mount_namespace::Error),
     ConfigParseError(serde_json::Error),
     NoLinuxNodeFoundError,
     HostnameInvalid(String),
@@ -64,12 +64,6 @@ impl From<io::Error> for Error {
 impl From<std::num::ParseIntError> for Error {
     fn from(err: std::num::ParseIntError) -> Error {
         Error::ParseIntError(err)
-    }
-}
-
-impl From<MountError> for Error {
-    fn from(err: MountError) -> Error {
-        Error::MountError(err)
     }
 }
 
@@ -404,19 +398,21 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                     }
                 }
             }
-            try!(mnt_ns.add_mount(Some(PathBuf::from(&m.source)),
-                                  PathBuf::from(&m.destination.trim_left_matches('/')),
-                                  Some(m.mount_type),
-                                  flags,
-                                  options));
+            mnt_ns.add_mount(Some(PathBuf::from(&m.source)),
+                             PathBuf::from(&m.destination.trim_left_matches('/')),
+                             Some(m.mount_type),
+                             flags,
+                             options)
+                .map_err(Error::MountSetup)?;
         }
     }
     for m in bind_mounts {
-        try!(mnt_ns.add_mount(Some(PathBuf::from(m.0)),
-                              PathBuf::from(m.1.trim_matches('/')),
-                              None,
-                              MS_BIND,
-                              Vec::new()));
+        mnt_ns.add_mount(Some(PathBuf::from(m.0)),
+                         PathBuf::from(m.1.trim_matches('/')),
+                         None,
+                         MS_BIND,
+                         Vec::new())
+                .map_err(Error::MountSetup)?;
     }
     Ok(mnt_ns)
 }

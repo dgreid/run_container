@@ -4,6 +4,7 @@ mod open_dir;
 
 use self::nix::mount::*;
 use self::open_dir::OpenDir;
+use std;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io;
@@ -11,22 +12,26 @@ use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub enum MountError {
+pub enum Error {
+    CreateTargetFile(io::Error),
     Io(io::Error),
     Nix(nix::Error),
+    InvalidRootPath,
     InvalidTargetPath,
+    MountCommand(nix::Error, PathBuf),
     PostSetupCallback,
 }
+pub type Result<T> = std::result::Result<T, Error>;
 
-impl From<io::Error> for MountError {
-    fn from(err: io::Error) -> MountError {
-        MountError::Io(err)
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(err)
     }
 }
 
-impl From<nix::Error> for MountError {
-    fn from(err: nix::Error) -> MountError {
-        MountError::Nix(err)
+impl From<nix::Error> for Error {
+    fn from(err: nix::Error) -> Error {
+        Error::Nix(err)
     }
 }
 
@@ -58,9 +63,9 @@ impl MountNamespace {
                      fstype: Option<String>,
                      flags: MsFlags,
                      options: Vec<String>)
-                     -> Result<(), MountError> {
+                     -> Result<()> {
         if target.is_absolute() {
-            return Err(MountError::InvalidTargetPath);
+            return Err(Error::InvalidTargetPath);
         }
 
         let new_mount = ContainerMount {
@@ -76,32 +81,33 @@ impl MountNamespace {
 
     // post_setup is called after mounts are made but before pivot root
     //  The path to the root fs is passed in to post_setup.
-    pub fn enter<F>(&self, post_setup: F) -> Result<(), MountError>
-        where F: Fn(&Path) -> Result<(), ()>
+    pub fn enter<F>(&self, post_setup: F) -> Result<()>
+        where F: Fn(&Path) -> std::result::Result<(), ()>
     {
         if !self.root.exists() {
-            return Err(MountError::Nix(nix::Error::InvalidPath));
+            return Err(Error::InvalidRootPath);
         }
 
         try!(nix::sched::unshare(nix::sched::CLONE_NEWNS));
         try!(self.remount_private());
 
         if post_setup(&self.root).is_err() {
-            return Err(MountError::PostSetupCallback);
+            return Err(Error::PostSetupCallback);
         }
 
         for m in self.mounts.iter() {
             let mut target = self.root.clone();
             target.push(m.target.as_path());
             self.prepare_mount_target(&m.source, &target)?;
-            try!(nix::mount::mount(m.source.as_ref(),
-                                   target.as_path(),
-                                   m.fstype.as_ref().map(|t| &**t),
-                                   m.flags,
-                                   Some(&m.options.join(",")[..])));
+            nix::mount::mount(m.source.as_ref(),
+                              target.as_path(),
+                              m.fstype.as_ref().map(|t| &**t),
+                              m.flags,
+                              Some(&m.options.join(",")[..]))
+                .map_err(|e| Error::MountCommand(e, target))?;
         }
 
-        try!(self.enter_pivot_root());
+        self.enter_pivot_root()?;
 
         Ok(())
     }
@@ -109,7 +115,7 @@ impl MountNamespace {
     fn prepare_mount_target(&self,
                             source: &Option<PathBuf>,
                             target: &PathBuf)
-                            -> Result<(), MountError> {
+                            -> Result<()> {
         if target.exists() {
             return Ok(());
         }
@@ -117,7 +123,8 @@ impl MountNamespace {
             if s.exists() && !s.is_dir() {
                 OpenOptions::new().create(true)
                     .write(true)
-                    .open(target.as_path())?;
+                    .open(target.as_path())
+                    .map_err(Error::CreateTargetFile)?;
                 return Ok(());
             }
         }
