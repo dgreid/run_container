@@ -40,7 +40,7 @@ use oci_config::*;
 pub enum Error {
     Io(io::Error),
     MountError(MountError),
-    ConfigParseError,
+    ConfigParseError(serde_json::Error),
     NoLinuxNodeFoundError,
     HostnameInvalid(String),
     SeccompError(seccomp_jail::Error),
@@ -70,12 +70,6 @@ impl From<std::num::ParseIntError> for Error {
 impl From<MountError> for Error {
     fn from(err: MountError) -> Error {
         Error::MountError(err)
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(_: serde_json::Error) -> Error {
-        Error::ConfigParseError
     }
 }
 
@@ -288,7 +282,8 @@ pub fn container_config_from_oci_config_file(path: &Path,
     config_path.push("config.json");
     let config_file = File::open(&config_path)?;
     let reader = BufReader::new(config_file);
-    let oci_config: OciConfig = serde_json::from_reader(reader)?;
+    let oci_config: OciConfig = serde_json::from_reader(reader)
+        .map_err(Error::ConfigParseError)?;
     container_from_oci(oci_config, bind_mounts, path)
 }
 
