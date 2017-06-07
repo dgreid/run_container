@@ -273,6 +273,7 @@ impl Container {
     // The client should panic on all failures
     pub fn run_child(&self, sync_pipe: SyncPipe) {
         sync_pipe.wait().unwrap();
+        drop(sync_pipe); // Done with the pipe.
         self.enter_jail().unwrap();
         nix::unistd::execv(&self.argv[0], &self.argv).unwrap();
         panic!("Failed to execute program");
