@@ -112,10 +112,7 @@ impl MountNamespace {
         Ok(())
     }
 
-    fn prepare_mount_target(&self,
-                            source: &Option<PathBuf>,
-                            target: &PathBuf)
-                            -> Result<()> {
+    fn prepare_mount_target(&self, source: &Option<PathBuf>, target: &PathBuf) -> Result<()> {
         if target.exists() {
             return Ok(());
         }

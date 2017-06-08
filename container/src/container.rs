@@ -264,7 +264,8 @@ impl Container {
 
         self.rlimits
             .as_ref()
-            .map_or(Ok(()), |r| r.configure(self.pid)).map_err(Error::RLimitsError)?;
+            .map_or(Ok(()), |r| r.configure(self.pid))
+            .map_err(Error::RLimitsError)?;
 
         sync_pipe.signal()?;
         Ok(())
@@ -315,7 +316,8 @@ impl Container {
     pub fn wait(&mut self) -> Result<()> {
         loop {
             match wait::waitpid(self.pid, Some(wait::__WALL)) {
-                Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
+                Ok(WaitStatus::Exited(..)) |
+                Ok(WaitStatus::Signaled(..)) => {
                     self.pid = -1;
                     return Ok(());
                 }

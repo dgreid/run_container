@@ -49,7 +49,12 @@ impl RLimits {
         if self.rlimits.contains_key(&rlimit) {
             return Err(Error::DuplicateLimit);
         }
-        self.rlimits.insert(rlimit, libc::rlimit64 { rlim_cur: cur, rlim_max: max });
+        self.rlimits
+            .insert(rlimit,
+                    libc::rlimit64 {
+                        rlim_cur: cur,
+                        rlim_max: max,
+                    });
         Ok(())
     }
 
