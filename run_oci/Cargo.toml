@@ -3,6 +3,10 @@ name = "run_oci"
 version = "0.1.0"
 authors = ["Dylan Reid <dgreid@chromium.org>"]
 
+[profile.release]
+lto = true
+panic = 'abort'
+
 [dependencies]
 container = { path = "../container" }
 container_config = { path = "../container_config" }
