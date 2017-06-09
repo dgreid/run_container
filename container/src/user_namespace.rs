@@ -59,7 +59,7 @@ impl UserNamespace {
     }
 
     pub fn get_external_uid(&self, id: usize) -> Option<usize> {
-        for map in self.uid_ranges.iter() {
+        for map in &self.uid_ranges {
             if id >= map.id_inside && id < map.id_inside + map.map_size {
                 return Some(map.id_outside + (id - map.id_inside));
             }

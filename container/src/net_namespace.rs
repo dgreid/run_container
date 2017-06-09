@@ -76,7 +76,7 @@ impl NetNamespace for NatNetNamespace {
                         "ACCEPT"])
                 .status()?;
             Command::new("iptables")
-                .args(&["-A", "FORWARD", "-i", "veth0", "-o", &iface, "-j", "ACCEPT"])
+                .args(&["-A", "FORWARD", "-i", "veth0", "-o", iface, "-j", "ACCEPT"])
                 .status()?;
         }
         Command::new("sysctl").arg("net.ipv4.ip_forward=1")

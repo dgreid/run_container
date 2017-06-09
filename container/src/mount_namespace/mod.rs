@@ -95,7 +95,7 @@ impl MountNamespace {
             return Err(Error::PostSetupCallback);
         }
 
-        for m in self.mounts.iter() {
+        for m in &self.mounts {
             let mut target = self.root.clone();
             target.push(m.target.as_path());
             self.prepare_mount_target(&m.source, &target)?;
@@ -116,7 +116,7 @@ impl MountNamespace {
         if target.exists() {
             return Ok(());
         }
-        if let &Some(ref s) = source {
+        if let Some(ref s) = *source {
             if s.exists() && !s.is_dir() {
                 OpenOptions::new().create(true)
                     .write(true)

@@ -96,7 +96,7 @@ impl Device {
         nix::sys::stat::mknod(&dev_path,
                               Device::flag_from_type(&self.dev_type),
                               Mode::from_bits(self.file_mode.unwrap_or(0))
-                                  .unwrap_or(Mode::empty()),
+                                  .unwrap_or_else(Mode::empty),
                               nix::sys::stat::makedev(self.major.unwrap() as u64,
                                                       self.minor.unwrap() as u64))?;
         let cpath = CString::new(dev_path.as_os_str().as_bytes());

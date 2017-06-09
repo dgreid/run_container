@@ -45,7 +45,7 @@ impl RLimits {
     }
 
     pub fn add_limit(&mut self, name: &str, cur: u64, max: u64) -> Result<()> {
-        let rlimit = rlimit_from_name(&name)?;
+        let rlimit = rlimit_from_name(name)?;
         if self.rlimits.contains_key(&rlimit) {
             return Err(Error::DuplicateLimit);
         }

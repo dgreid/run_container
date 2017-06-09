@@ -21,7 +21,7 @@ impl Sysctls {
 
     pub fn configure(&self) -> Result<()> {
         for (key, value) in &self.sysctls {
-            self.write_sysctl_file(&key, &value)?;
+            self.write_sysctl_file(key, value)?;
         }
         Ok(())
     }
