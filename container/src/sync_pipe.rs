@@ -1,11 +1,15 @@
 extern crate libc;
-extern crate nix;
 
-use self::nix::unistd::{pipe, read, write, close};
 use std;
 use std::os::unix::io::RawFd;
 
-pub type Result<T> = std::result::Result<T, nix::Error>;
+#[derive(Debug)]
+pub enum Error {
+    PipeCreation(i32),
+    ReadingPipe(i32),
+    WritingPipe(i32),
+}
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct SyncPipe {
     read_fd: RawFd,
@@ -14,39 +18,77 @@ pub struct SyncPipe {
 
 impl SyncPipe {
     pub fn new() -> Result<SyncPipe> {
-        pipe().map(|fds| {
-                       SyncPipe {
-                           read_fd: fds.0,
-                           write_fd: fds.1,
-                       }
-                   })
+        let fds = unsafe {
+            // Safe because pipe will fill the fds on success.
+            let mut fds: [libc::c_int; 2] = std::mem::uninitialized();
+            if libc::pipe(fds.as_mut_ptr()) != 0 {
+                return Err(Error::PipeCreation(*libc::__errno_location()));
+            }
+            fds
+        };
+
+        Ok(SyncPipe {
+               read_fd: fds[0],
+               write_fd: fds[1],
+           })
     }
 
     pub fn wait(&self) -> Result<()> {
         let mut buf = [0u8; 1];
         loop {
-            match read(self.read_fd, &mut buf) {
-                Ok(0) |
-                Err(nix::Error::Sys(nix::Errno::EINTR)) => continue,
-                Ok(_) => return Ok(()),
-                Err(e) => return Err(e),
+            let rc = unsafe {
+                // Reading is safe as we will read at most one byte which fits in buf.
+                libc::read(self.read_fd, buf.as_mut_ptr() as *mut libc::c_void, 1)
+            };
+            match rc {
+                0 => continue,
+                1 => return Ok(()),
+                _ => {
+                    // Reading errno is safe as it will have been set by read above.
+                    let errno = unsafe { *libc::__errno_location() };
+                    if errno == libc::EINTR {
+                        continue;
+                    }
+                    return Err(Error::ReadingPipe(errno as i32));
+                }
             }
         }
     }
 
     pub fn signal(&self) -> Result<()> {
         let buf = [1u8; 1];
-        write(self.write_fd, &buf).map(|_| ())
+        loop {
+            let rc = unsafe {
+                // Writing is safe, it only reads one byte from the pointer.
+                libc::write(self.write_fd, buf.as_ptr() as *mut libc::c_void, 1)
+            };
+            match rc {
+                0 => continue,
+                1 => return Ok(()),
+                _ => {
+                    // Reading errno is safe as it will have been set by write above.
+                    let errno = unsafe { *libc::__errno_location() };
+                    if errno == libc::EINTR {
+                        continue;
+                    }
+                    return Err(Error::WritingPipe(errno as i32));
+                }
+            }
+        }
     }
 }
 
 impl Drop for SyncPipe {
     fn drop(&mut self) {
-        match close(self.read_fd) {
-            _ => (),
-        }
-        match close(self.write_fd) {
-            _ => (),
+        unsafe {
+            // Calling close is safe because we know all reference to this object
+            // have been dropped.
+            match libc::close(self.read_fd) {
+                _ => (),
+            }
+            match libc::close(self.write_fd) {
+                _ => (),
+            }
         }
     }
 }
@@ -54,7 +96,7 @@ impl Drop for SyncPipe {
 impl Clone for SyncPipe {
     fn clone(&self) -> SyncPipe {
         unsafe {
-            // Calling dup is OK, it only creates a new fd and that fd's lifetime is
+            // Calling dup is OK, it creates a new fd and that fd's lifetime is
             // managed by the SyncPipe created here.
             SyncPipe {
                 read_fd: libc::dup(self.read_fd),

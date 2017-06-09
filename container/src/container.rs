@@ -12,7 +12,7 @@ use seccomp_jail;
 use seccomp_jail::SeccompJail;
 use sysctls;
 use sysctls::Sysctls;
-use sync_pipe::*;
+use sync_pipe::{self, SyncPipe};
 use syscall_defines::linux::LinuxSyscall::*;
 use user_namespace::UserNamespace;
 
@@ -53,9 +53,11 @@ pub enum Error {
     CGroupCreateError,
     InvalidCGroup,
     AltSyscallError,
+    SyncPipeCreation(sync_pipe::Error),
     RLimitsError(rlimits::Error),
     SetGroupsError,
     SeccompError(seccomp_jail::Error),
+    SignalChild(sync_pipe::Error),
     SysctlError(sysctls::Error),
     CGroupFailure(cgroup::Error),
     DeviceFailure(devices::Error),
@@ -267,7 +269,7 @@ impl Container {
             .map_or(Ok(()), |r| r.configure(self.pid))
             .map_err(Error::RLimitsError)?;
 
-        sync_pipe.signal()?;
+        sync_pipe.signal().map_err(Error::SignalChild)?;
         Ok(())
     }
 
@@ -290,7 +292,7 @@ impl Container {
             .as_mut()
             .map_or(Ok(()), |ref mut d| d.pre_fork_setup(mode))?;
 
-        let sync_pipe = SyncPipe::new()?;
+        let sync_pipe = SyncPipe::new().map_err(Error::SyncPipeCreation)?;
         let pid = self.do_clone()?;
         match pid {
             0 => {
