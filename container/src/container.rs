@@ -383,8 +383,8 @@ mod test {
         let mut user_namespace = UserNamespace::new();
         let seccomp_config = SeccompConfig::new("SCMP_ACT_ALLOW").unwrap();
         let seccomp_jail = SeccompJail::new(&seccomp_config).unwrap();
-        user_namespace.add_uid_mapping(0, getuid() as usize, 1);
-        user_namespace.add_gid_mapping(0, getgid() as usize, 1);
+        user_namespace.add_uid_mapping(0, getuid() as u64, 1);
+        user_namespace.add_gid_mapping(0, getgid() as u64, 1);
         // TODO(dgreid) - add test with each network namespace
         let mut c = Container::new("asdf",
                                    argv,

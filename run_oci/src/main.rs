@@ -214,8 +214,8 @@ fn main() {
     cc = cc.net_namespace(Some(cmd_opts.get_net_namespace()));
     if !cmd_opts.should_use_user_config() {
         let mut user_ns = UserNamespace::new();
-        user_ns.add_uid_mapping(0, getuid() as usize, 1);
-        user_ns.add_gid_mapping(0, getgid() as usize, 1);
+        user_ns.add_uid_mapping(0, getuid() as u64, 1);
+        user_ns.add_gid_mapping(0, getgid() as u64, 1);
         cc = cc.user_namespace(Some(user_ns));
     }
     cc = cc.append_args(cmd_opts.get_extra_args());

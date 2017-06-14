@@ -6,9 +6,9 @@ use std::io;
 use std::io::Write;
 
 struct IdRange {
-    id_inside: usize,
-    id_outside: usize,
-    map_size: usize,
+    id_inside: u64,
+    id_outside: u64,
+    map_size: u64,
 }
 
 pub struct UserNamespace {
@@ -24,7 +24,7 @@ impl UserNamespace {
         }
     }
 
-    pub fn add_uid_mapping(&mut self, id_inside: usize, id_outside: usize, map_size: usize) {
+    pub fn add_uid_mapping(&mut self, id_inside: u64, id_outside: u64, map_size: u64) {
         self.uid_ranges
             .push(IdRange {
                       id_inside: id_inside,
@@ -33,7 +33,7 @@ impl UserNamespace {
                   });
     }
 
-    pub fn add_gid_mapping(&mut self, id_inside: usize, id_outside: usize, map_size: usize) {
+    pub fn add_gid_mapping(&mut self, id_inside: u64, id_outside: u64, map_size: u64) {
         self.gid_ranges
             .push(IdRange {
                       id_inside: id_inside,
@@ -58,8 +58,17 @@ impl UserNamespace {
         v.join(",")
     }
 
-    pub fn get_external_uid(&self, id: usize) -> Option<usize> {
+    pub fn get_external_uid(&self, id: u64) -> Option<u64> {
         for map in &self.uid_ranges {
+            if id >= map.id_inside && id < map.id_inside + map.map_size {
+                return Some(map.id_outside + (id - map.id_inside));
+            }
+        }
+        None
+    }
+
+    pub fn get_external_gid(&self, id: u64) -> Option<u64> {
+        for map in &self.gid_ranges {
             if id >= map.id_inside && id < map.id_inside + map.map_size {
                 return Some(map.id_outside + (id - map.id_inside));
             }

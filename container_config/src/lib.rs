@@ -301,13 +301,13 @@ fn container_from_oci(config: OciConfig,
         None
     };
 
-    let device_config = device_config_from_oci(&linux.devices)?;
-
     // TODO(dgreid) - Should user namespace really be optional?
     let user_ns = user_ns_from_oci(&linux.uid_mappings,
                                    &linux.gid_mappings,
-                                   config.process.user.uid,
-                                   config.process.user.gid);
+                                   config.process.user.uid as u64,
+                                   config.process.user.gid as u64);
+
+    let device_config = device_config_from_oci(&linux.devices, &user_ns)?;
 
     let argv = config.process
         .args
@@ -417,7 +417,8 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
     Ok(mnt_ns)
 }
 
-fn device_config_from_oci(dev_list: &Option<Vec<OciLinuxDevice>>) ->
+fn device_config_from_oci(dev_list: &Option<Vec<OciLinuxDevice>>,
+                          user_ns: &UserNamespace) ->
         Result<devices::DeviceConfig> {
     let mut devices = devices::DeviceConfig::new();
     if let Some(ref dev_list) = *dev_list {
@@ -428,7 +429,9 @@ fn device_config_from_oci(dev_list: &Option<Vec<OciLinuxDevice>>) ->
                 _ => return Err(Error::InvalidDeviceType),
             };
             devices.add_device(dev_type, &PathBuf::from(&d.path), d.major,
-                               d.minor, d.file_mode, d.uid, d.gid)?;
+                               d.minor, d.file_mode,
+                               d.uid.and_then(|u| user_ns.get_external_uid(u as u64)),
+                               d.gid.and_then(|g| user_ns.get_external_gid(g as u64)))?;
         }
     }
     Ok(devices)
@@ -436,30 +439,30 @@ fn device_config_from_oci(dev_list: &Option<Vec<OciLinuxDevice>>) ->
 
 fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
                     gid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
-                    uid: u32,
-                    gid: u32)
+                    uid: u64,
+                    gid: u64)
                     -> UserNamespace {
     let mut user_ns = UserNamespace::new();
     if let Some(ref uid_mappings) = *uid_maps {
         for id_map in uid_mappings {
-            user_ns.add_uid_mapping(id_map.container_id as usize,
-                                    id_map.host_id as usize,
-                                    id_map.size as usize);
+            user_ns.add_uid_mapping(id_map.container_id,
+                                    id_map.host_id,
+                                    id_map.size);
         }
     } else {
         // Default map the current user to the uid the process will run as.
-        user_ns.add_uid_mapping(uid as usize, getuid() as usize, 1);
+        user_ns.add_uid_mapping(uid, getuid() as u64, 1);
     }
 
     if let Some(ref gid_mappings) = *gid_maps {
         for id_map in gid_mappings {
-            user_ns.add_gid_mapping(id_map.container_id as usize,
-                                    id_map.host_id as usize,
-                                    id_map.size as usize);
+            user_ns.add_gid_mapping(id_map.container_id,
+                                    id_map.host_id,
+                                    id_map.size);
         }
     } else {
         // Default map the current group to the gid the process will run as.
-        user_ns.add_gid_mapping(gid as usize, getgid() as usize, 1);
+        user_ns.add_gid_mapping(gid, getgid() as u64, 1);
     }
     user_ns
 }

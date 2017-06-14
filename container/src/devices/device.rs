@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate nix;
 
 use self::nix::mount::{MS_BIND, MS_REC};
@@ -54,8 +55,8 @@ pub struct Device {
     major: Option<u32>,
     minor: Option<u32>,
     file_mode: Option<u32>,
-    uid: Option<u32>,
-    gid: Option<u32>,
+    uid: Option<libc::uid_t>,
+    gid: Option<libc::gid_t>,
 }
 
 impl Device {
@@ -64,8 +65,8 @@ impl Device {
                major: Option<u32>,
                minor: Option<u32>,
                file_mode: Option<u32>,
-               uid: Option<u32>,
-               gid: Option<u32>)
+               uid: Option<u64>,
+               gid: Option<u64>)
                -> Result<Device, Error> {
         let relative_path = PathBuf::from(path.strip_prefix("/dev/")?);
 
@@ -75,8 +76,8 @@ impl Device {
                major: major,
                minor: minor,
                file_mode: file_mode,
-               uid: uid,
-               gid: gid,
+               uid: uid.map(|u| u as libc::uid_t),
+               gid: gid.map(|g| g as libc::gid_t),
            })
     }
 

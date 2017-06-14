@@ -66,8 +66,8 @@ impl DeviceConfig {
                       major: Option<u32>,
                       minor: Option<u32>,
                       file_mode: Option<u32>,
-                      uid: Option<u32>,
-                      gid: Option<u32>)
+                      uid: Option<u64>,
+                      gid: Option<u64>)
                       -> Result<(), Error> {
         self.devices
             .push(Device::new(dev_type, path, major, minor, file_mode, uid, gid)?);
