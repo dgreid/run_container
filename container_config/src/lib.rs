@@ -204,8 +204,8 @@ impl ContainerConfig {
         self
     }
 
-    pub fn append_args(mut self, args: &Vec<String>) -> ContainerConfig {
-        for ref string_arg in args {
+    pub fn append_args(mut self, args: &[String]) -> ContainerConfig {
+        for string_arg in args.iter() {
             self.argv.push(CString::new(string_arg.as_str()).unwrap());
         }
         self
@@ -227,7 +227,7 @@ impl ContainerConfig {
     }
 
     pub fn sysctls(mut self, sysctls: Option<HashMap<String, String>>) -> ContainerConfig {
-        self.sysctls = sysctls.map(|s| Sysctls::new(s));
+        self.sysctls = sysctls.map(Sysctls::new);
         self
     }
 
@@ -285,7 +285,7 @@ fn container_from_oci(config: OciConfig,
                       bind_mounts: Vec<(String, String)>,
                       path: &Path)
                       -> Result<ContainerConfig> {
-    let hostname = config.hostname.unwrap_or("default".to_string());
+    let hostname = config.hostname.unwrap_or_else(|| "default".to_string());
     if !hostname_valid(&hostname) {
         return Err(Error::HostnameInvalid(hostname));
     }
@@ -377,11 +377,11 @@ fn mount_ns_from_oci(mounts_vec: Option<Vec<OciMount>>,
                      -> Result<MountNamespace> {
     let mut mnt_ns = MountNamespace::new(root_path);
     if let Some(mounts) = mounts_vec {
-        for m in mounts.into_iter() {
+        for m in mounts {
             let mut flags = MsFlags::empty();
             let mut options = Vec::new();
             if let Some(mnt_opts) = m.options {
-                for opt in mnt_opts.into_iter() {
+                for opt in mnt_opts {
                     match opt.as_ref() {
                         "bind" => flags.insert(MS_BIND),
                         "noatime" => flags.insert(MS_NOATIME),
@@ -477,12 +477,11 @@ fn hostname_valid(hostname: &str) -> bool {
         return false;
     }
 
-    let double_dash = regex::Regex::new("--").unwrap();
-    if double_dash.is_match(hostname) {
+    if hostname.contains("--") {
         return false;
     }
 
-    return true;
+    true
 }
 
 fn seccomp_jail_from_oci(oci_seccomp: &OciSeccomp) -> Result<SeccompJail> {
@@ -520,7 +519,7 @@ fn cgroups_from_oci(linux: &OciLinux) -> Result<Vec<Box<CGroupConfiguration>>> {
     Ok(cgroups)
 }
 
-fn rlimits_from_oci(oci_rlim: &Vec<OciRlimit>) -> Result<RLimits> {
+fn rlimits_from_oci(oci_rlim: &[OciRlimit]) -> Result<RLimits> {
     let mut rlimits = RLimits::new();
     for lim in oci_rlim {
         rlimits.add_limit(&lim.limit_type, lim.soft as u64, lim.hard as u64)
@@ -529,20 +528,20 @@ fn rlimits_from_oci(oci_rlim: &Vec<OciRlimit>) -> Result<RLimits> {
     Ok(rlimits)
 }
 
-fn device_cgroup_config(devices: &Vec<OciLinuxCgroupDevice>)
+fn device_cgroup_config(devices: &[OciLinuxCgroupDevice])
                         -> Result<Box<CGroupConfiguration>> {
     if devices.is_empty() {
         return Err(Error::NoDevicesFound);
     }
 
     let mut devices_config = Box::new(DevicesCGroupConfiguration::new());
-    for ref device in devices {
+    for device in devices.iter() {
         devices_config.add_device(device.major,
                         device.minor,
                         device.allow,
-                        device.access.as_ref().map_or(true, |a| a.contains("r")),
-                        device.access.as_ref().map_or(true, |a| a.contains("w")),
-                        device.access.as_ref().map_or(true, |a| a.contains("m")),
+                        device.access.as_ref().map_or(true, |a| a.contains('r')),
+                        device.access.as_ref().map_or(true, |a| a.contains('w')),
+                        device.access.as_ref().map_or(true, |a| a.contains('m')),
                         device.dev_type
                             .as_ref()
                             .map_or(Ok('a'),
@@ -565,11 +564,11 @@ fn cpuset_cgroup_config(config: &OciLinuxCgroupCpu)
                         -> Result<Box<CpuSetCGroupConfiguration>> {
     let mut cpuset_config = Box::new(CpuSetCGroupConfiguration::new());
     if let Some(ref cpus_string) = config.cpus {
-        let cpus_vec: Vec<&str> = cpus_string.split(",").collect();
+        let cpus_vec: Vec<&str> = cpus_string.split(',').collect();
         for cpu in &cpus_vec {
-            if cpu.contains("-") {
+            if cpu.contains('-') {
                 // range given
-                let range: Vec<&str> = cpu.split("-").collect();
+                let range: Vec<&str> = cpu.split('-').collect();
                 for i in range[0].parse::<u32>()?..(range[1].parse::<u32>()? + 1) {
                     cpuset_config.add_cpu(i);
                 }
@@ -580,11 +579,11 @@ fn cpuset_cgroup_config(config: &OciLinuxCgroupCpu)
     }
 
     if let Some(ref mems_string) = config.mems {
-        let mems_vec: Vec<&str> = mems_string.split(",").collect();
+        let mems_vec: Vec<&str> = mems_string.split(',').collect();
         for mem in &mems_vec {
-            if mem.contains("-") {
+            if mem.contains('-') {
                 // range given
-                let range: Vec<&str> = mem.split("-").collect();
+                let range: Vec<&str> = mem.split('-').collect();
                 for i in range[0].parse::<u32>()?..(range[1].parse::<u32>()? + 1) {
                     cpuset_config.add_mem(i);
                 }
