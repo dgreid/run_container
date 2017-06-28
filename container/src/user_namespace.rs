@@ -47,7 +47,7 @@ impl UserNamespace {
             .iter()
             .map(|r| format!("{} {} {}", r.id_inside, r.id_outside, r.map_size))
             .collect();
-        v.join(",")
+        v.join("\n")
     }
 
     pub fn gid_config_string(&self) -> String {
@@ -55,7 +55,7 @@ impl UserNamespace {
             .iter()
             .map(|r| format!("{} {} {}", r.id_inside, r.id_outside, r.map_size))
             .collect();
-        v.join(",")
+        v.join("\n")
     }
 
     pub fn get_external_uid(&self, id: u64) -> Option<u64> {
@@ -120,7 +120,7 @@ mod test {
         let mut u = UserNamespace::new();
         u.add_uid_mapping(0, 10, 1);
         u.add_uid_mapping(100, 500, 20);
-        assert_eq!(&u.uid_config_string(), "0 10 1,100 500 20");
+        assert_eq!(&u.uid_config_string(), "0 10 1\n100 500 20");
         assert_eq!(u.get_external_uid(0), Some(10));
         assert_eq!(u.get_external_uid(1), None);
         assert_eq!(u.get_external_uid(100), Some(500));
@@ -137,6 +137,6 @@ mod test {
         u.add_gid_mapping(100, 500, 20);
         u.add_gid_mapping(1000, 1500, 220);
         assert_eq!(&u.uid_config_string(), "0 10 1");
-        assert_eq!(&u.gid_config_string(), "0 10 1,100 500 20,1000 1500 220");
+        assert_eq!(&u.gid_config_string(), "0 10 1\n100 500 20\n1000 1500 220");
     }
 }
