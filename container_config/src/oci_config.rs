@@ -25,13 +25,22 @@ pub struct OciRlimit {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct OciProcessCapabilities {
+    pub effective: Option<Vec<String>>,
+    pub bounding: Option<Vec<String>>,
+    pub inheritable: Option<Vec<String>>,
+    pub permitted: Option<Vec<String>>,
+    pub ambient: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct OciProcess {
     pub terminal: Option<bool>,
     pub user: OciProcessUser,
     pub args: Vec<String>,
     pub env: Option<Vec<String>>,
     pub cwd: String,
-    pub capabilities: Option<Vec<String>>,
+    pub capabilities: Option<OciProcessCapabilities>,
     pub rlimits: Option<Vec<OciRlimit>>,
     #[serde(rename="apparmorProfile")]
     pub apparmor_profile: Option<bool>,
@@ -310,11 +319,13 @@ mod tests {
                         "TERM=xterm"
                     ],
                     "cwd": "/",
-                    "capabilities": [
-                        "CAP_AUDIT_WRITE",
-                        "CAP_KILL",
-                        "CAP_NET_BIND_SERVICE"
-                    ],
+                    "capabilities": {
+                        "effective": [
+                            "CAP_AUDIT_WRITE",
+                            "CAP_KILL",
+                            "CAP_NET_BIND_SERVICE"
+                        ]
+                    },
                     "rlimits": [
                         {
                             "type": "RLIMIT_NOFILE",
@@ -577,7 +588,7 @@ mod tests {
         assert_eq!(basic_config.process
                        .capabilities
                        .as_ref()
-                       .and_then(|caps| caps.get(2)),
+                       .and_then(|caps| caps.effective.as_ref().and_then(|eff| eff.get(2))),
                    Some(&"CAP_NET_BIND_SERVICE".to_string()));
         assert_eq!(basic_config.process
                        .rlimits
