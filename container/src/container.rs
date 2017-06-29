@@ -222,32 +222,25 @@ impl Container {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
         self.set_additional_gids()?;
-        self.net_namespace
-            .as_ref()
-            .map_or(Ok(()), |n| n.configure_in_child())?;
-        self.cgroup_namespace
-            .as_ref()
-            .map_or(Ok(()), |c| c.enter())?;
-        self.mount_namespace
-            .as_ref()
-            .map_or(Ok(()), |m| {
-                m.enter(|rootpath| {
-                    let setup_result = self.device_config
-                        .as_ref()
-                        .map_or(Ok(()), |d| {
-                            d.setup_in_namespace(&rootpath.join("dev"),
-                                                 Some(&PathBuf::from("/dev")))
-                        });
-                    if setup_result.is_err() {
-                        return Err(());
-                    }
-                    Ok(())
-                })
-            })
-            .map_err(Error::MountSetup)?;
-        self.sysctls
-            .as_ref()
-            .map_or(Ok(()), |s| s.configure())?;
+        if let Some(ref net_ns) = self.net_namespace {
+            net_ns.configure_in_child()?;
+        }
+        if let Some(ref cg_ns) = self.cgroup_namespace {
+            cg_ns.enter()?;
+        }
+        if let Some(ref mnt_ns) = self.mount_namespace {
+            mnt_ns.enter(|rootpath| {
+                if let Some(ref device_config) = self.device_config {
+                    device_config.setup_in_namespace(&rootpath.join("dev"),
+                                                     Some(&PathBuf::from("/dev")))
+                        .map_err(|_| ())?;
+                }
+                Ok(())
+            }).map_err(Error::MountSetup)?;
+        }
+        if let Some(ref sysctls) = self.sysctls {
+            sysctls.configure()?;
+        }
         nix::unistd::sethostname(&self.name)?;
         self.enter_jail_in_ns()?;
         Ok(())
