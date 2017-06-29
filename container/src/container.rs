@@ -162,7 +162,28 @@ impl Container {
         &self.name
     }
 
-    fn set_no_new_privileges(&self) -> Result<()> {
+    fn do_seccomp(&self) -> Result<()> {
+        if let Some(ref sj) = self.seccomp_jail {
+            sj.enter()?;
+        }
+        Ok(())
+    }
+
+    fn enter_alt_syscall_table(&self) -> Result<()> {
+        if let Some(ref ast) = self.alt_syscall_table {
+            unsafe {
+                // Calling prctl is safe, it doesn't touch memory.
+                if libc::prctl(0x43724f53, // PR_ALT_SYSCALL
+                               1,
+                               ast.as_ptr()) != 0 {
+                    return Err(Error::AltSyscallError);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn enter_jail_in_ns(&self) -> Result<()> {
         if self.no_new_privileges {
             unsafe {
                 // Calling prctl is safe, it doesn't touch memory.
@@ -170,24 +191,17 @@ impl Container {
                     return Err(Error::NoNewPrivsFailed(*libc::__errno_location()));
                 }
             }
+        } else {
+            // Without NoNewPrivileges seccomp is a privileged operation, so we
+            // need to do this before dropping capabilities; otherwise do it
+            // last so as few syscalls take place after it as possible.
+            self.do_seccomp()?;
+        }
+        self.enter_alt_syscall_table()?;
+        if self.no_new_privileges {
+            self.do_seccomp()?;
         }
         Ok(())
-    }
-
-    fn enter_alt_syscall_table(&self) -> Result<()> {
-        self.alt_syscall_table
-            .as_ref()
-            .map_or(Ok(()), |t| {
-                unsafe {
-                    match nix::sys::syscall::syscall(SYS_prctl as i64,
-                                                     0x43724f53, // PR_ALT_SYSCALL
-                                                     1,
-                                                     t.as_ptr()) {
-                        0 => Ok(()),
-                        _ => Err(Error::AltSyscallError),
-                    }
-                }
-            })
     }
 
     fn set_additional_gids(&self) -> Result<()> {
@@ -202,13 +216,6 @@ impl Container {
                 _ => Err(Error::SetGroupsError),
             }
         }
-    }
-
-    fn do_seccomp(&self) -> Result<()> {
-        if let Some(ref sj) = self.seccomp_jail {
-            sj.enter()?;
-        }
-        Ok(())
     }
 
     fn enter_jail(&self) -> Result<()> {
@@ -242,9 +249,7 @@ impl Container {
             .as_ref()
             .map_or(Ok(()), |s| s.configure())?;
         nix::unistd::sethostname(&self.name)?;
-        self.set_no_new_privileges()?;
-        self.enter_alt_syscall_table()?;
-        self.do_seccomp()?;
+        self.enter_jail_in_ns()?;
         Ok(())
     }
 
