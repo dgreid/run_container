@@ -110,6 +110,7 @@ pub struct ContainerConfig {
     mount_namespace: Option<MountNamespace>,
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
+    no_new_privileges: bool,
     rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
     additional_gids: Vec<u32>,
@@ -132,6 +133,7 @@ impl ContainerConfig {
             mount_namespace: None,
             user_namespace: None,
             net_namespace: None,
+            no_new_privileges: false,
             rlimits: None,
             seccomp_jail: None,
             additional_gids: Vec::new(),
@@ -191,6 +193,11 @@ impl ContainerConfig {
 
     pub fn net_namespace(mut self, net_namespace: Option<Box<NetNamespace>>) -> ContainerConfig {
         self.net_namespace = net_namespace;
+        self
+    }
+
+    pub fn no_new_privileges(mut self, no_new_privileges: bool) -> ContainerConfig {
+        self.no_new_privileges = no_new_privileges;
         self
     }
 
@@ -260,6 +267,7 @@ impl ContainerConfig {
                                    self.net_namespace,
                                    self.user_namespace,
                                    self.additional_gids,
+                                   self.no_new_privileges,
                                    self.rlimits,
                                    self.seccomp_jail,
                                    self.sysctls,
@@ -353,6 +361,7 @@ fn container_from_oci(config: OciConfig,
         .user_namespace(Some(user_ns))
         .uid(Some(config.process.user.uid as uid_t))
         .net_namespace(net_ns)
+        .no_new_privileges(config.process.no_new_privileges.unwrap_or(false))
         .additional_gids(additional_gids)
         .rlimits(rlimits)
         .seccomp_jail(seccomp_jail))

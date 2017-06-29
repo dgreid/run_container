@@ -35,6 +35,7 @@ pub struct Container {
     mount_namespace: Option<MountNamespace>,
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
+    no_new_privileges: bool,
     rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
     sysctls: Option<Sysctls>,
@@ -50,6 +51,7 @@ pub enum Error {
     WaitPidFailed,
     MountSetup(mount_namespace::Error),
     NetworkNamespaceConfigError,
+    NoNewPrivsFailed(i32),
     CGroupCreateError,
     InvalidCGroup,
     AltSyscallError,
@@ -130,6 +132,7 @@ impl Container {
                net_namespace: Option<Box<NetNamespace>>,
                user_namespace: Option<UserNamespace>,
                additional_groups: Vec<u32>,
+               no_new_privileges: bool,
                rlimits: Option<RLimits>,
                seccomp_jail: Option<SeccompJail>,
                sysctls: Option<Sysctls>,
@@ -146,6 +149,7 @@ impl Container {
             net_namespace: net_namespace,
             user_namespace: user_namespace,
             additional_groups: additional_groups,
+            no_new_privileges: no_new_privileges,
             rlimits: rlimits,
             seccomp_jail: seccomp_jail,
             sysctls: sysctls,
@@ -156,6 +160,18 @@ impl Container {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    fn set_no_new_privileges(&self) -> Result<()> {
+        if self.no_new_privileges {
+            unsafe {
+                // Calling prctl is safe, it doesn't touch memory.
+                if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0 {
+                    return Err(Error::NoNewPrivsFailed(*libc::__errno_location()));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn enter_alt_syscall_table(&self) -> Result<()> {
@@ -219,6 +235,7 @@ impl Container {
             .as_ref()
             .map_or(Ok(()), |s| s.configure())?;
         nix::unistd::sethostname(&self.name)?;
+        self.set_no_new_privileges()?;
         self.enter_alt_syscall_table()?;
         self.seccomp_jail
             .as_ref()
@@ -395,6 +412,7 @@ mod test {
                                    Some(Box::new(EmptyNetNamespace::new())),
                                    Some(user_namespace),
                                    Vec::new(),
+                                   false,
                                    None,
                                    Some(seccomp_jail),
                                    None,
