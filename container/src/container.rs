@@ -204,6 +204,13 @@ impl Container {
         }
     }
 
+    fn do_seccomp(&self) -> Result<()> {
+        if let Some(ref sj) = self.seccomp_jail {
+            sj.enter()?;
+        }
+        Ok(())
+    }
+
     fn enter_jail(&self) -> Result<()> {
         nix::unistd::setresuid(0, 0, 0)?;
         nix::unistd::setresgid(0, 0, 0)?;
@@ -237,9 +244,7 @@ impl Container {
         nix::unistd::sethostname(&self.name)?;
         self.set_no_new_privileges()?;
         self.enter_alt_syscall_table()?;
-        self.seccomp_jail
-            .as_ref()
-            .map_or(Ok(()), |s| s.enter())?;
+        self.do_seccomp()?;
         Ok(())
     }
 
