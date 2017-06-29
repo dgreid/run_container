@@ -1,6 +1,8 @@
+extern crate caps;
 extern crate libc;
 extern crate nix;
 
+use self::caps::CapConfig;
 use cgroup::{self, CGroup};
 use cgroup_namespace::{self, CGroupNamespace};
 use devices::{self, DeviceConfig};
@@ -29,6 +31,7 @@ pub struct Container {
     name: String,
     alt_syscall_table: Option<CString>,
     argv: Vec<CString>,
+    caps: Option<CapConfig>,
     cgroups: Vec<CGroup>,
     cgroup_namespace: Option<CGroupNamespace>,
     device_config: Option<DeviceConfig>,
@@ -46,6 +49,8 @@ pub struct Container {
 
 #[derive(Debug)]
 pub enum Error {
+    BoundingCaps(caps::Error),
+    DroppingCaps(caps::Error),
     Io(io::Error),
     Nix(nix::Error),
     WaitPidFailed,
@@ -125,6 +130,7 @@ impl From<sysctls::Error> for Error {
 impl Container {
     pub fn new(name: &str,
                argv: Vec<CString>,
+               caps: Option<CapConfig>,
                cgroups: Vec<CGroup>,
                cgroup_namespace: Option<CGroupNamespace>,
                device_config: Option<DeviceConfig>,
@@ -142,6 +148,7 @@ impl Container {
             name: name.to_string(),
             alt_syscall_table: None,
             argv: argv,
+            caps: caps,
             cgroups: cgroups,
             cgroup_namespace: cgroup_namespace,
             device_config: device_config,
@@ -197,10 +204,20 @@ impl Container {
             // last so as few syscalls take place after it as possible.
             self.do_seccomp()?;
         }
+
+        if let Some(ref caps) = self.caps {
+            caps.drop_bounding_caps()
+                .map_err(Error::BoundingCaps)?;
+            caps.drop_caps()
+                .map_err(Error::DroppingCaps)?;
+        }
+
         self.enter_alt_syscall_table()?;
+
         if self.no_new_privileges {
             self.do_seccomp()?;
         }
+
         Ok(())
     }
 
@@ -408,6 +425,7 @@ mod test {
         // TODO(dgreid) - add test with each network namespace
         let mut c = Container::new("asdf",
                                    argv,
+                                   None,
                                    Vec::new(),
                                    Some(cgroup_namespace),
                                    None,

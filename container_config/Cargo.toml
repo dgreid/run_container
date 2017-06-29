@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Dylan Reid <dgreid@chromium.org>"]
 
 [dependencies]
+caps = { path = "../caps" }
 container = { path = "../container" }
 nix = { git = "http://github.com/nix-rust/nix.git" }
 serde = "*"

@@ -4,10 +4,12 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate regex;
 
+extern crate caps;
 extern crate container;
 
 mod oci_config;
 
+use caps::{CapConfig, CapType};
 use container::container::Container;
 use container::cgroup::{self, CGroup};
 use container::cgroup::cgroup_configuration::{self, CGroupConfiguration,
@@ -38,6 +40,7 @@ use oci_config::*;
 
 #[derive(Debug)]
 pub enum Error {
+    CreatingCapConfig(caps::Error),
     Io(io::Error),
     MountSetup(mount_namespace::Error),
     ConfigParseError(serde_json::Error),
@@ -101,6 +104,7 @@ pub struct ContainerConfig {
     name: String,
     alt_syscall_table: Option<CString>,
     argv: Vec<CString>,
+    caps: Option<CapConfig>,
     cgroup_base_path: PathBuf,
     cgroup_name: String,
     cgroup_parent: String,
@@ -124,6 +128,7 @@ impl ContainerConfig {
             name: name,
             alt_syscall_table: None,
             argv: Vec::new(),
+            caps: None,
             cgroup_base_path: PathBuf::from("/sys/fs/cgroup"),
             cgroup_name: "container".to_string(),
             cgroup_parent: "".to_string(),
@@ -150,8 +155,8 @@ impl ContainerConfig {
         self.user_namespace.as_ref().and_then(|t| t.get_external_uid(0).map(|uid| uid as uid_t))
     }
 
-    pub fn cgroup_base_path(mut self, cgroup_base_path: &Path) -> ContainerConfig {
-        self.cgroup_base_path = PathBuf::from(cgroup_base_path);
+    pub fn caps(mut self, caps: Option<CapConfig>) -> ContainerConfig {
+        self.caps = caps;
         self
     }
 
@@ -260,6 +265,7 @@ impl ContainerConfig {
 
         let mut c = Container::new(&self.name,
                                    self.argv,
+                                   self.caps,
                                    cgroups,
                                    self.cgroup_namespace,
                                    self.device_config,
@@ -351,9 +357,15 @@ fn container_from_oci(config: OciConfig,
 
     let additional_gids = config.process.user.additional_gids.map_or(Vec::new(), |g| g);
 
+    let caps = match config.process.capabilities {
+        None => None,
+        Some(c) => Some(capabilities_from_oci(c)?),
+    };
+
     Ok(ContainerConfig::new(hostname)
         .alt_syscall_table(None)
         .argv(argv)
+        .caps(caps)
         .cgroup_namespace(cgroup_ns)
         .cgroup_configs(cgroup_configs)
         .device_config(device_config)
@@ -491,6 +503,26 @@ fn hostname_valid(hostname: &str) -> bool {
     }
 
     true
+}
+
+fn capabilities_from_oci(oci_caps: OciProcessCapabilities) -> Result<CapConfig> {
+    let mut caps = CapConfig::new().map_err(Error::CreatingCapConfig)?;
+    if let Some(ref effective) = oci_caps.effective {
+        caps.set_caps(CapType::Effective, &effective).map_err(Error::CreatingCapConfig)?;
+    }
+    if let Some(ref bounding) = oci_caps.bounding {
+        caps.set_caps(CapType::Bounding, &bounding).map_err(Error::CreatingCapConfig)?;
+    }
+    if let Some(ref inheritable) = oci_caps.inheritable {
+        caps.set_caps(CapType::Inheritable, &inheritable).map_err(Error::CreatingCapConfig)?;
+    }
+    if let Some(ref permitted) = oci_caps.permitted {
+        caps.set_caps(CapType::Permitted, &permitted).map_err(Error::CreatingCapConfig)?;
+    }
+    if let Some(ref ambient) = oci_caps.ambient {
+        caps.set_caps(CapType::Ambient, &ambient).map_err(Error::CreatingCapConfig)?;
+    }
+    Ok(caps)
 }
 
 fn seccomp_jail_from_oci(oci_seccomp: &OciSeccomp) -> Result<SeccompJail> {

@@ -1,0 +1,6 @@
+[package]
+name = "libcap_ffi"
+version = "0.1.0"
+authors = ["Dylan Reid <dgreid@chromium.org>"]
+
+[dependencies]

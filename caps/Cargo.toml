@@ -1,0 +1,8 @@
+[package]
+name = "caps"
+version = "0.1.0"
+authors = ["Dylan Reid <dgreid@chromium.org>"]
+
+[dependencies]
+libc = "*"
+libcap_ffi = { path = "../libcap_ffi" }

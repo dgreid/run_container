@@ -8,3 +8,4 @@ libc = "*"
 nix = { git = "http://github.com/nix-rust/nix.git" }
 tempdir = "*"
 seccomp-sys = "*"
+caps = { path = "../caps" }
