@@ -460,8 +460,8 @@ fn device_config_from_oci(dev_list: &Option<Vec<OciLinuxDevice>>,
 
 fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
                     gid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
-                    uid: u64,
-                    gid: u64)
+                    ns_uid: u64,
+                    ns_gid: u64)
                     -> UserNamespace {
     let mut user_ns = UserNamespace::new();
     if let Some(ref uid_mappings) = *uid_maps {
@@ -472,7 +472,7 @@ fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
         }
     } else {
         // Default map the current user to the uid the process will run as.
-        user_ns.add_uid_mapping(uid, getuid() as u64, 1);
+        user_ns.add_uid_mapping(ns_uid, getuid() as u64, 1);
     }
 
     if let Some(ref gid_mappings) = *gid_maps {
@@ -483,7 +483,7 @@ fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
         }
     } else {
         // Default map the current group to the gid the process will run as.
-        user_ns.add_gid_mapping(gid, getgid() as u64, 1);
+        user_ns.add_gid_mapping(ns_gid, getgid() as u64, 1);
     }
     user_ns
 }
