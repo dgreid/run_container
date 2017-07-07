@@ -255,12 +255,13 @@ impl ContainerConfig {
 
     pub fn start(self) -> Result<Container> {
         let mut cgroups = Vec::new();
+        let external_uid = self.external_uid();
         for cgconfig in self.cgroup_configs {
             cgroups.push(CGroup::new(&self.cgroup_name,
                                      &self.cgroup_parent,
                                      &self.cgroup_base_path,
                                      cgconfig,
-                                     self.uid)?);
+                                     external_uid)?);
         }
 
         let mut c = Container::new(&self.name,
@@ -280,6 +281,16 @@ impl ContainerConfig {
                                    true);
         c.start()?;
         Ok(c)
+    }
+
+    fn external_uid(&self) -> Option<uid_t> {
+        self.uid.and_then(|uid|
+                if let Some(ref user_ns) = self.user_namespace {
+                    user_ns.get_external_uid(uid as u64).map(|uid| uid as uid_t)
+                } else {
+                    Some(uid)
+                }
+            )
     }
 }
 
