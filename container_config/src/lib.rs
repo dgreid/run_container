@@ -47,7 +47,7 @@ pub enum Error {
     NoLinuxNodeFoundError,
     HostnameInvalid(String),
     SeccompError(seccomp_jail::Error),
-    ContainerError(container::container::Error),
+    ContainerStartError(container::container::Error),
     CGroupError(cgroup::Error),
     CGroupConfigError(cgroup_configuration::Error),
     DeviceError(devices::Error),
@@ -73,12 +73,6 @@ impl From<std::num::ParseIntError> for Error {
 impl From<seccomp_jail::Error> for Error {
     fn from(err: seccomp_jail::Error) -> Error {
         Error::SeccompError(err)
-    }
-}
-
-impl From<container::container::Error> for Error {
-    fn from(err: container::container::Error) -> Error {
-        Error::ContainerError(err)
     }
 }
 
@@ -279,7 +273,7 @@ impl ContainerConfig {
                                    self.seccomp_jail,
                                    self.sysctls,
                                    true);
-        c.start()?;
+        c.start().map_err(Error::ContainerStartError)?;
         Ok(c)
     }
 

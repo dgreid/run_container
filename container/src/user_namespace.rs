@@ -1,9 +1,18 @@
 extern crate nix;
 
 use self::nix::sys::ioctl::libc::pid_t;
+use std;
 use std::fs;
 use std::io;
 use std::io::Write;
+
+#[derive(Debug)]
+pub enum Error {
+    GroupMaps(io::Error),
+    SetGroups(io::Error),
+    UserMaps(io::Error),
+}
+pub type Result<T> = std::result::Result<T, Error>;
 
 struct IdRange {
     id_inside: u64,
@@ -76,27 +85,33 @@ impl UserNamespace {
         None
     }
 
-    pub fn configure(&self, pid: pid_t, disable_set_groups: bool) -> Result<(), io::Error> {
+    pub fn configure(&self, pid: pid_t, disable_set_groups: bool) -> Result<()> {
         let mut uid_file = fs::OpenOptions::new().write(true)
             .read(false)
             .create(false)
-            .open(format!("/proc/{}/uid_map", pid))?;
-        uid_file.write_all(self.uid_config_string().as_bytes())?;
+            .open(format!("/proc/{}/uid_map", pid))
+            .map_err(Error::UserMaps)?;
+        uid_file.write_all(self.uid_config_string().as_bytes())
+            .map_err(Error::UserMaps)?;
 
         if disable_set_groups {
             // Must disable setgroups before writing gid map if running as a normal user
             let mut setgroups_file = fs::OpenOptions::new().write(true)
                 .read(false)
                 .create(false)
-                .open(format!("/proc/{}/setgroups", pid))?;
-            setgroups_file.write_all(b"deny")?;
+                .open(format!("/proc/{}/setgroups", pid))
+                .map_err(Error::SetGroups)?;
+            setgroups_file.write_all(b"deny")
+                .map_err(Error::SetGroups)?;
         }
 
         let mut gid_file = fs::OpenOptions::new().write(true)
             .read(false)
             .create(false)
-            .open(format!("/proc/{}/gid_map", pid))?;
-        gid_file.write_all(self.gid_config_string().as_bytes())?;
+            .open(format!("/proc/{}/gid_map", pid))
+            .map_err(Error::GroupMaps)?;
+        gid_file.write_all(self.gid_config_string().as_bytes())
+            .map_err(Error::GroupMaps)?;
 
         Ok(())
     }

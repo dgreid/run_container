@@ -16,7 +16,7 @@ use sysctls;
 use sysctls::Sysctls;
 use sync_pipe::{self, SyncPipe};
 use syscall_defines::linux::LinuxSyscall::*;
-use user_namespace::UserNamespace;
+use user_namespace::{self, UserNamespace};
 
 use self::libc::pid_t;
 use self::nix::sched::*;
@@ -50,12 +50,14 @@ pub struct Container {
 #[derive(Debug)]
 pub enum Error {
     BoundingCaps(caps::Error),
+    CloningProcess(nix::Error),
     DroppingCaps(caps::Error),
     Io(io::Error),
     Nix(nix::Error),
     WaitPidFailed,
     MountSetup(mount_namespace::Error),
-    NetworkNamespaceConfigError,
+    NetworkConfigureChild(net_namespace::Error),
+    NetworkNamespaceConfigure(net_namespace::Error),
     NoNewPrivsFailed(i32),
     CGroupCreateError,
     InvalidCGroup,
@@ -67,7 +69,8 @@ pub enum Error {
     SignalChild(sync_pipe::Error),
     SysctlError(sysctls::Error),
     CGroupFailure(cgroup::Error),
-    DeviceFailure(devices::Error),
+    PreForkDeviceSetup(devices::Error),
+    UserNamespaceConfigure(user_namespace::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -80,23 +83,6 @@ impl From<nix::Error> for Error {
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error::Io(err)
-    }
-}
-
-impl From<devices::Error> for Error {
-    fn from(err: devices::Error) -> Error {
-        Error::DeviceFailure(err)
-    }
-}
-
-impl From<net_namespace::Error> for Error {
-    fn from(err: net_namespace::Error) -> Error {
-        match err {
-            net_namespace::Error::NetNamespaceDeviceSetupFailed => {
-                Error::NetworkNamespaceConfigError
-            }
-            net_namespace::Error::Io(_) => Error::NetworkNamespaceConfigError,
-        }
     }
 }
 
@@ -240,7 +226,7 @@ impl Container {
         nix::unistd::setresgid(0, 0, 0)?;
         self.set_additional_gids()?;
         if let Some(ref net_ns) = self.net_namespace {
-            net_ns.configure_in_child()?;
+            net_ns.configure_in_child().map_err(Error::NetworkConfigureChild)?;
         }
         if let Some(ref cg_ns) = self.cgroup_namespace {
             cg_ns.enter()?;
@@ -291,10 +277,12 @@ impl Container {
     pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<()> {
         self.user_namespace
             .as_ref()
-            .map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))?;
+            .map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))
+            .map_err(Error::UserNamespaceConfigure)?;
         self.net_namespace
             .as_ref()
-            .map_or(Ok(()), |n| n.configure_for_pid(self.pid))?;
+            .map_or(Ok(()), |n| n.configure_for_pid(self.pid))
+            .map_err(Error::NetworkNamespaceConfigure)?;
 
         for cgroup in &self.cgroups {
             cgroup.configure()?;
@@ -327,10 +315,11 @@ impl Container {
         };
         self.device_config
             .as_mut()
-            .map_or(Ok(()), |ref mut d| d.pre_fork_setup(mode))?;
+            .map_or(Ok(()), |ref mut d| d.pre_fork_setup(mode))
+            .map_err(Error::PreForkDeviceSetup)?;
 
         let sync_pipe = SyncPipe::new().map_err(Error::SyncPipeCreation)?;
-        let pid = self.do_clone()?;
+        let pid = self.do_clone().map_err(Error::CloningProcess)?;
         match pid {
             0 => {
                 // child

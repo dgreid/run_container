@@ -6,6 +6,7 @@ use std::process::Command;
 
 // Parent side configuration for a network namespace
 
+#[derive(Debug)]
 pub enum Error {
     Io(io::Error),
     NetNamespaceDeviceSetupFailed,
