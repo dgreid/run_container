@@ -26,9 +26,9 @@ struct CommandOptions {
 // Examples:
 //
 //  For a NAT'd network:
-//  # run_oci -u -n masquerade --masquerade_dev eth0 --masquerade_dev wlan0 --masquerade_ip 10.1.1.1/24 /mnt/stateful_partition/containers/run_container/
+//  # run_oci -u -n masquerade --masquerade_dev eth0 --masquerade_dev wlan0 --masquerade_ip 10.1.1.1 --container_ip 10.1.1.2 /mnt/stateful_partition/containers/run_container/
 //  For a bridged network:
-//  # run_oci -n bridge --bridged_ip 10.1.1.2/24 --bridge_device veth1 --bridge_name br0 --masquerade_ip 10.1.1.1 /containers/busybox/
+//  # run_oci -n bridge --container_ip 10.1.1.2/24 --bridge_device veth1 --bridge_name br0 --masquerade_ip 10.1.1.1 /containers/busybox/
 
 impl CommandOptions {
     fn build_opts() -> getopts::Options {
@@ -43,8 +43,8 @@ impl CommandOptions {
                     "If network is bridged, the upstream dev to use",
                     "DEV");
         opts.optopt("i",
-                    "bridged_ip",
-                    "If network is bridged, the IP address for the container",
+                    "container_ip",
+                    "If network is bridged or NAT, the IP address for the container",
                     "IP");
         opts.optopt("m",
                     "masquerade_ip",
@@ -127,7 +127,7 @@ impl CommandOptions {
     fn net_ns_from_opts(matches: &getopts::Matches) -> Result<Box<NetNamespace>, ()> {
         let bridge_name = matches.opt_str("r");
         let bridge_device = matches.opt_str("d");
-        let bridged_ip = matches.opt_str("i");
+        let container_ip = matches.opt_str("i");
         let masquerade_ip = matches.opt_str("m");
         let mut masquerade_devices = Vec::new();
         for dev in matches.opt_strs("q").into_iter() {
@@ -142,21 +142,23 @@ impl CommandOptions {
                         println!("bridge_name and bride_device are required");
                         return Err(());
                     }
-                    if bridged_ip.is_none() || masquerade_ip.is_none() {
+                    if container_ip.is_none() || masquerade_ip.is_none() {
                         println!("bridge_ip, and masquerate_ip are required");
                         return Err(());
                     }
                     Ok(Box::new(BridgedNetNamespace::new(bridge_name.unwrap(),
                                                          bridge_device.unwrap(),
                                                          masquerade_ip.unwrap(),
-                                                         bridged_ip.unwrap())))
+                                                         container_ip.unwrap())))
                 }
                 "masquerade" => {
                     if masquerade_devices.is_empty() || masquerade_ip.is_none() {
                         println!("A device and IP are required for masquerade networking");
                         return Err(());
                     }
-                    Ok(Box::new(NatNetNamespace::new(masquerade_devices, masquerade_ip.unwrap())))
+                    Ok(Box::new(NatNetNamespace::new(masquerade_devices,
+                                                     masquerade_ip.unwrap(),
+                                                     container_ip.unwrap())))
                 }
                 _ => {
                     println!("Invalid network type");
