@@ -32,11 +32,14 @@ pub trait NetNamespace {
 pub struct NatNetNamespace {
     upstream_ifaces: Vec<String>,
     ip_addr: String, // ip address of the host-side interface for NAT
-    namespace_addr: String, // ip address of the container-side interface for NAT
+    namespace_addr: Option<String>, // ip address of the container-side interface for NAT
 }
 
 impl NatNetNamespace {
-    pub fn new(upstream_ifaces: Vec<String>, ip_addr: String, namespace_addr: String) -> Self {
+    pub fn new(upstream_ifaces: Vec<String>,
+               ip_addr: String,
+               namespace_addr: Option<String>)
+               -> Self {
         NatNetNamespace {
             upstream_ifaces: upstream_ifaces,
             ip_addr: ip_addr,
@@ -91,14 +94,16 @@ impl NetNamespace for NatNetNamespace {
     }
 
     fn configure_in_child(&self) -> Result<(), Error> {
-        let mut container_ip_mask = self.namespace_addr.clone();
-        container_ip_mask.push_str("/24");
-        Command::new("ip").args(&["addr", "add", &container_ip_mask, "dev", "veth1"])
-            .status()?;
-        Command::new("ip").args(&["link", "set", "veth1", "up"])
-            .status()?;
-        Command::new("ip").args(&["route", "add", "default", "via", &self.ip_addr])
-            .status()?;
+        if let Some(ref namespace_addr) = self.namespace_addr {
+            let mut container_ip_mask = namespace_addr.clone();
+            container_ip_mask.push_str("/24");
+            Command::new("ip").args(&["addr", "add", &container_ip_mask, "dev", "veth1"])
+                .status()?;
+            Command::new("ip").args(&["link", "set", "veth1", "up"])
+                .status()?;
+            Command::new("ip").args(&["route", "add", "default", "via", &self.ip_addr])
+                .status()?;
+        }
         enable_device("lo")?;
         Ok(())
     }

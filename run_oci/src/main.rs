@@ -20,6 +20,7 @@ struct CommandOptions {
     extra_argv: Vec<String>,
     net_ns: Option<Box<NetNamespace>>,
     bind_mounts: Option<Vec<(String, String)>>,
+    securebits_unlock_mask: Option<usize>,
     use_configured_users: bool,
 }
 
@@ -33,6 +34,13 @@ struct CommandOptions {
 impl CommandOptions {
     fn build_opts() -> getopts::Options {
         let mut opts = getopts::Options::new();
+        opts.optopt("B",
+                    "securebits_skip_mask",
+                    "If Capabilities are used by the container config, this \
+                     option allows some securebits to not be set.  By default, \
+                     SECURE_NOROOT, SECURE_NO_SETUID_FIXUP, and SECURE_KEEP_CAPS \
+                     (together with their respective locks) are set.\n",
+                     "<unlock bitmask>");
         opts.optmulti("b",
                       "bind_mount",
                       "Add a bind mount from external to internal",
@@ -99,6 +107,9 @@ impl CommandOptions {
                 ()
             })?;
 
+        let securebits_unlock_mask = matches.opt_str("B")
+                .map(|mask| usize::from_str_radix(&mask, 16).expect("Invalid securebits mask"));
+
         Ok(CommandOptions {
             alt_syscall_table: matches.opt_str("s"),
             cgroup_parent: matches.opt_str("p"),
@@ -107,6 +118,7 @@ impl CommandOptions {
             extra_argv: matches.free.split_off(1),
             net_ns: Some(net_ns),
             bind_mounts: Some(bind_mounts),
+            securebits_unlock_mask: securebits_unlock_mask,
             use_configured_users: !matches.opt_present("u"),
         })
     }
@@ -158,7 +170,7 @@ impl CommandOptions {
                     }
                     Ok(Box::new(NatNetNamespace::new(masquerade_devices,
                                                      masquerade_ip.unwrap(),
-                                                     container_ip.unwrap())))
+                                                     container_ip)))
                 }
                 _ => {
                     println!("Invalid network type");
@@ -192,6 +204,10 @@ impl CommandOptions {
     pub fn get_extra_args(&self) -> &Vec<String> {
         &self.extra_argv
     }
+
+    pub fn securebits_unlock_mask(&self) -> Option<usize> {
+        self.securebits_unlock_mask
+    }
 }
 
 fn main() {
@@ -202,7 +218,8 @@ fn main() {
     };
 
     let mut cc = container_config_from_oci_config_file(&cmd_opts.get_container_path(),
-                                                       cmd_opts.get_bind_mounts())
+                                                       cmd_opts.get_bind_mounts(),
+                                                       cmd_opts.securebits_unlock_mask())
         .expect("Failed to parse config");
 
     if let Some(cgroup_parent) = cmd_opts.cgroup_parent.take() {

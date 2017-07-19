@@ -289,7 +289,8 @@ impl ContainerConfig {
 }
 
 pub fn container_config_from_oci_config_file(path: &Path,
-                                             bind_mounts: Vec<(String, String)>)
+                                             bind_mounts: Vec<(String, String)>,
+                                             securebits_unlock_mask: Option<usize>)
                                              -> Result<ContainerConfig> {
     let mut config_path = PathBuf::from(path);
     config_path.push("config.json");
@@ -297,11 +298,12 @@ pub fn container_config_from_oci_config_file(path: &Path,
     let reader = BufReader::new(config_file);
     let oci_config: OciConfig = serde_json::from_reader(reader)
         .map_err(Error::ConfigParseError)?;
-    container_from_oci(oci_config, bind_mounts, path)
+    container_from_oci(oci_config, bind_mounts, securebits_unlock_mask, path)
 }
 
 fn container_from_oci(config: OciConfig,
                       bind_mounts: Vec<(String, String)>,
+                      securebits_unlock_mask: Option<usize>,
                       path: &Path)
                       -> Result<ContainerConfig> {
     let hostname = config.hostname.unwrap_or_else(|| "default".to_string());
@@ -364,7 +366,7 @@ fn container_from_oci(config: OciConfig,
 
     let caps = match config.process.capabilities {
         None => None,
-        Some(c) => Some(capabilities_from_oci(c)?),
+        Some(c) => Some(capabilities_from_oci(c, securebits_unlock_mask)?),
     };
 
     Ok(ContainerConfig::new(hostname)
@@ -510,7 +512,8 @@ fn hostname_valid(hostname: &str) -> bool {
     true
 }
 
-fn capabilities_from_oci(oci_caps: OciProcessCapabilities) -> Result<CapConfig> {
+fn capabilities_from_oci(oci_caps: OciProcessCapabilities,
+                         securebits_unlock_mask: Option<usize>) -> Result<CapConfig> {
     let mut caps = CapConfig::new().map_err(Error::CreatingCapConfig)?;
     if let Some(ref effective) = oci_caps.effective {
         caps.set_caps(CapType::Effective, &effective).map_err(Error::CreatingCapConfig)?;
@@ -527,6 +530,8 @@ fn capabilities_from_oci(oci_caps: OciProcessCapabilities) -> Result<CapConfig> 
     if let Some(ref ambient) = oci_caps.ambient {
         caps.set_caps(CapType::Ambient, &ambient).map_err(Error::CreatingCapConfig)?;
     }
+
+    securebits_unlock_mask.map(|mask| caps.securebits_unlock_mask(mask));
     Ok(caps)
 }
 

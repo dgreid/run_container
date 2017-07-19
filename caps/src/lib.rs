@@ -25,8 +25,12 @@ pub enum Error {
     GettingLastValidCap,
     /// The capability name specified is invalid or doesn't exist.
     InvalidCapability,
+    /// Setting the securebits prctl to the first value failed with the provided errno.
+    SecureBits(usize, i32),
     /// Setting the capabilities failed with the given errno.
     SettingCaps(i32),
+    /// PR_SET_KEEPCAPS failed.
+    SettingKeepCaps(i32),
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -90,8 +94,13 @@ fn cap_flag_val(cap: CapType) -> cap_flag_t {
     }
 }
 
+/// Capability configuration for a process.
+///
+/// * caps - A map of the capabilities allocated to the process.
+/// * securebits_unlock_mask - A mask of the securebits to leave unlocked see capabilities(7).
 pub struct CapConfig {
     caps: CapMap,
+    securebits_unlock_mask: usize,
 }
 
 impl CapConfig {
@@ -99,7 +108,11 @@ impl CapConfig {
         if !cap_ambient_supported() {
             return Err(Error::AmbientCapsUnsupportedInKernel);
         }
-        Ok(CapConfig { caps: CapMap::new() })
+        Ok(CapConfig { caps: CapMap::new(), securebits_unlock_mask: 0 })
+    }
+
+    pub fn securebits_unlock_mask(&mut self, securebits_unlock_mask: usize) {
+        self.securebits_unlock_mask = securebits_unlock_mask;
     }
 
     pub fn set_caps(&mut self, cap_type: CapType, whitelist: &[String]) -> Result<()> {
@@ -130,6 +143,15 @@ impl CapConfig {
     }
 
     pub fn drop_bounding_caps(&self) -> Result<()> {
+        unsafe {
+            // `prctl` is safe to call, it doesn't touch memory.
+            if libc::prctl(libc::PR_SET_KEEPCAPS, 1) < 0 {
+                return Err(Error::SettingKeepCaps(*libc::__errno_location()));
+            }
+        }
+
+        self.configure_secure_bits()?;
+
         let last_valid_cap = get_last_valid_cap()?;
         for cap in 0..last_valid_cap {
             if let Some(ref bcaps) = self.caps.get(&CapType::Bounding) {
@@ -142,6 +164,24 @@ impl CapConfig {
                 if libc::prctl(libc::PR_CAPBSET_DROP, cap) < 0 {
                     return Err(Error::DroppingBoundingCap(cap, *libc::__errno_location()));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn configure_secure_bits(&self) -> Result<()> {
+        const SECURE_BITS_NO_AMBIENT: usize =  0x15;
+        const SECURE_LOCKS_NO_AMBIENT: usize = SECURE_BITS_NO_AMBIENT << 1;
+
+        let securebits =
+            (SECURE_BITS_NO_AMBIENT | SECURE_LOCKS_NO_AMBIENT) & !self.securebits_unlock_mask;
+        if securebits == 0 {
+            return Ok(());
+        }
+        unsafe {
+            // `prctl` is safe to call, it doesn't touch memory.
+            if libc::prctl(libc::PR_SET_SECUREBITS, securebits) < 0 {
+                return Err(Error::SecureBits(securebits, *libc::__errno_location()));
             }
         }
         Ok(())
@@ -216,7 +256,7 @@ impl Caps {
 
     pub fn apply(&self) -> Result<()> {
         unsafe {
-            // Calling cap_set_proc is safe the kernel will only read from the capability arrays.
+            // Calling cap_set_proc is safe. The kernel will only read from the capability arrays.
             if cap_set_proc(self.caps) < 0 {
                 return Err(Error::SettingCaps(*libc::__errno_location()));
             }
