@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate nix;
 
 use std::collections::BTreeSet;
@@ -253,8 +254,10 @@ impl DevicesCGroupConfiguration {
 impl CGroupConfiguration for DevicesCGroupConfiguration {
     fn configure(&self, dir: &CGroupDirectory) -> Result<(), Error> {
         // Only root can do device cgroup setup.
-        if nix::unistd::getuid() != 0 {
-            return Ok(());
+	unsafe {  // Getting uid is safe, it only returns an int and doesn't touch memory.
+	    if libc::getuid() != 0 {
+                return Ok(());
+            }
         }
 
         match dir.write_file(DevicesCGroupConfiguration::filename_for_access(self.default_allow),

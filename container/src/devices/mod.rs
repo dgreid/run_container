@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate nix;
 extern crate tempdir;
 
@@ -143,11 +144,11 @@ impl DeviceConfig {
 //TODO(dgreid) - Add test for mknod but need to run as root.
 #[cfg(test)]
 mod test {
+    extern crate libc;
     extern crate nix;
     extern crate tempdir;
     use self::nix::sched::*;
-    use self::nix::sys::ioctl::libc::pid_t;
-    use self::nix::sys::wait;
+    use self::libc::pid_t;
     use self::tempdir::TempDir;
     use std::fs;
     use std::path::PathBuf;
@@ -155,7 +156,11 @@ mod test {
     use syscall_defines::linux::LinuxSyscall::*;
 
     fn do_clone() -> Result<pid_t, nix::Error> {
-        nix::unistd::setpgid(0, 0)?;
+        unsafe {
+            if libc::setpgid(0,0) < 0 {
+                return Err(nix::Error::Sys(nix::Errno::UnknownErrno));
+            }
+        }
 
         unsafe {
             let clone_flags = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS;
@@ -195,7 +200,10 @@ mod test {
             }
             _ => {
                 //parent
-                assert!(wait::waitpid(pid, Some(wait::__WALL)).is_ok());
+                let mut status: libc::c_int = 0;
+                unsafe {
+                    assert!(libc::waitpid(pid, &mut status as *mut _, 0) > 0);
+                }
             }
         }
 

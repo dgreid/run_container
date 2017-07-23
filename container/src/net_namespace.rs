@@ -1,6 +1,7 @@
+extern crate libc;
 extern crate nix;
 
-use self::nix::sys::ioctl::libc::pid_t;
+use self::libc::pid_t;
 use std::io;
 use std::process::Command;
 

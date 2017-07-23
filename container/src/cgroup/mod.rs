@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate nix;
 
 pub mod cgroup_configuration;
@@ -6,7 +7,7 @@ mod cgroup_directory;
 use cgroup::cgroup_configuration::CGroupConfiguration;
 use cgroup::cgroup_directory::CGroupDirectory;
 
-use self::nix::libc::{pid_t, uid_t};
+use self::libc::{pid_t, uid_t};
 use std;
 use std::path::Path;
 

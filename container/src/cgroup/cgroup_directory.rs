@@ -1,9 +1,12 @@
+extern crate libc;
 extern crate nix;
 
-use self::nix::libc::{gid_t, pid_t, uid_t};
+use self::libc::{gid_t, pid_t, uid_t};
 
 use std::io;
+use std::ffi::{self, CString};
 use std::fs;
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -11,7 +14,9 @@ use std::io::Write;
 
 #[derive(Debug)]
 pub enum Error {
+    Chown(i32),
     Io(io::Error),
+    InvalidPath(ffi::NulError),
     Nix(nix::Error),
 }
 
@@ -60,7 +65,17 @@ impl CGroupDirectory {
     }
 
     pub fn chown(&self, cg_uid: Option<uid_t>, cg_gid: Option<gid_t>) -> Result<(), Error> {
-        nix::unistd::chown(self.path.as_path(), cg_uid, cg_gid)?;
+        let cpath = CString::new(self.path.as_os_str().to_os_string().into_vec())
+            .map_err(Error::InvalidPath)?;
+        unsafe {
+            // chown only reads the path from memory.
+            let ret = libc::chown(cpath.as_ptr() as *const i8,
+                                  cg_uid.unwrap_or(-1i32 as uid_t),
+                                  cg_gid.unwrap_or(-1i32 as gid_t));
+            if ret < 0 {
+                return Err(Error::Chown(*libc::__errno_location()));
+            }
+        }
         Ok(())
     }
 

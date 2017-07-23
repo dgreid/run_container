@@ -1,6 +1,6 @@
-extern crate nix;
+extern crate libc;
 
-use self::nix::sys::ioctl::libc::pid_t;
+use self::libc::pid_t;
 use std;
 use std::fs;
 use std::io;

@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate nix;
 #[macro_use]
 extern crate serde_derive;
@@ -26,9 +27,8 @@ use container::seccomp_jail::{self, SeccompConfig, SeccompJail};
 use container::sysctls::Sysctls;
 use container::user_namespace::UserNamespace;
 
-use self::nix::libc::uid_t;
+use libc::uid_t;
 use self::nix::mount::*;
-use self::nix::unistd::{getuid, getgid};
 
 use std::collections::HashMap;
 use std::io::{self, BufReader};
@@ -479,7 +479,7 @@ fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
         }
     } else {
         // Default map the current user to the uid the process will run as.
-        user_ns.add_uid_mapping(ns_uid, getuid() as u64, 1);
+        user_ns.add_uid_mapping(ns_uid, unsafe { libc::getuid() } as u64, 1);
     }
 
     if let Some(ref gid_mappings) = *gid_maps {
@@ -490,7 +490,7 @@ fn user_ns_from_oci(uid_maps: &Option<Vec<OciLinuxNamespaceMapping>>,
         }
     } else {
         // Default map the current group to the gid the process will run as.
-        user_ns.add_gid_mapping(ns_gid, getgid() as u64, 1);
+        user_ns.add_gid_mapping(ns_gid, unsafe { libc::getgid() } as u64, 1);
     }
     user_ns
 }

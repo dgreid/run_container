@@ -20,8 +20,6 @@ use user_namespace::{self, UserNamespace};
 
 use self::libc::pid_t;
 use self::nix::sched::*;
-use self::nix::sys::wait;
-use self::nix::sys::wait::WaitStatus;
 use std;
 use std::ffi::CString;
 use std::io;
@@ -50,11 +48,11 @@ pub struct Container {
 #[derive(Debug)]
 pub enum Error {
     BoundingCaps(caps::Error),
-    CloningProcess(nix::Error),
+    CloneSyscall(i32),
     DroppingCaps(caps::Error),
     Io(io::Error),
     Nix(nix::Error),
-    WaitPidFailed,
+    WaitPidFailed(i32),
     MountSetup(mount_namespace::Error),
     NetworkConfigureChild(net_namespace::Error),
     NetworkNamespaceConfigure(net_namespace::Error),
@@ -65,6 +63,9 @@ pub enum Error {
     SyncPipeCreation(sync_pipe::Error),
     RLimitsError(rlimits::Error),
     SetGroupsError,
+    SettingPGid(i32),
+    SettingRootGid(i32),
+    SettingRootUid(i32),
     SeccompError(seccomp_jail::Error),
     SignalChild(sync_pipe::Error),
     SysctlError(sysctls::Error),
@@ -213,8 +214,8 @@ impl Container {
         }
 
         unsafe {
-            match nix::sys::ioctl::libc::setgroups(self.additional_groups.len(),
-                                                   self.additional_groups.as_ptr()) {
+            match libc::setgroups(self.additional_groups.len(),
+                                  self.additional_groups.as_ptr()) {
                 0 => Ok(()),
                 _ => Err(Error::SetGroupsError),
             }
@@ -222,8 +223,15 @@ impl Container {
     }
 
     fn enter_jail(&self) -> Result<()> {
-        nix::unistd::setresuid(0, 0, 0)?;
-        nix::unistd::setresgid(0, 0, 0)?;
+	unsafe {
+            // Setting the uid or gid doesn't touch memory.
+            if libc::setresuid(0, 0, 0) < 0 {
+                return Err(Error::SettingRootUid(*libc::__errno_location()));
+            }
+            if libc::setresgid(0, 0, 0) < 0 {
+                return Err(Error::SettingRootGid(*libc::__errno_location()));
+            }
+        }
         self.set_additional_gids()?;
         if let Some(ref net_ns) = self.net_namespace {
             net_ns.configure_in_child().map_err(Error::NetworkConfigureChild)?;
@@ -258,8 +266,12 @@ impl Container {
         }
     }
 
-    fn do_clone(&self) -> std::result::Result<pid_t, nix::Error> {
-        nix::unistd::setpgid(0, 0)?;
+    fn do_clone(&self) -> Result<pid_t> {
+        unsafe {
+            if libc::setpgid(0,0) < 0 {
+                return Err(Error::SettingPGid(*libc::__errno_location()));
+            }
+        }
 
         unsafe {
             let pid = nix::sys::syscall::syscall(SYS_clone as i64,
@@ -267,7 +279,7 @@ impl Container {
                                                  nix::sys::signal::SIGCHLD as i32,
                                                  0);
             if pid < 0 {
-                Err(nix::Error::Sys(nix::Errno::UnknownErrno))
+                Err(Error::CloneSyscall(*libc::__errno_location()))
             } else {
                 Ok(pid as pid_t)
             }
@@ -319,7 +331,7 @@ impl Container {
             .map_err(Error::PreForkDeviceSetup)?;
 
         let sync_pipe = SyncPipe::new().map_err(Error::SyncPipeCreation)?;
-        let pid = self.do_clone().map_err(Error::CloningProcess)?;
+        let pid = self.do_clone()?;
         match pid {
             0 => {
                 // child
@@ -343,25 +355,26 @@ impl Container {
 
     pub fn wait(&mut self) -> Result<()> {
         loop {
-            match wait::waitpid(self.pid, Some(wait::__WALL)) {
-                Ok(WaitStatus::Exited(..)) |
-                Ok(WaitStatus::Signaled(..)) => {
-                    self.pid = -1;
-                    return Ok(());
+            unsafe {
+                let mut status: libc::c_int = 0;
+                let ret = libc::waitpid(self.pid, &mut status as *mut _, 0);
+                if ret < 0 {
+                    let errno = *libc::__errno_location();
+                    if errno == libc::EINTR || errno == libc::EAGAIN {
+                        continue;
+                    }
+                    return Err(Error::WaitPidFailed(errno));
                 }
-                Ok(WaitStatus::Stopped(..)) => (), // Child being traced?  Try again.
-                Ok(WaitStatus::Continued(..)) => (),
-                Ok(WaitStatus::StillAlive) => (),
-                Ok(WaitStatus::PtraceEvent(..)) => (),
-                Err(nix::Error::Sys(nix::Errno::EINTR)) => (), // Try again.
-                Err(_) => return Err(Error::WaitPidFailed),
+                break;
             }
         }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
+    extern crate libc;
     extern crate nix;
     extern crate tempdir;
 
@@ -375,8 +388,6 @@ mod test {
     use std::path::PathBuf;
     use std::ffi::CString;
     use user_namespace::*;
-    use self::nix::unistd::getuid;
-    use self::nix::unistd::getgid;
     use self::tempdir::TempDir;
     use std::fs;
 
@@ -409,8 +420,8 @@ mod test {
         let mut user_namespace = UserNamespace::new();
         let seccomp_config = SeccompConfig::new("SCMP_ACT_ALLOW").unwrap();
         let seccomp_jail = SeccompJail::new(&seccomp_config).unwrap();
-        user_namespace.add_uid_mapping(0, getuid() as u64, 1);
-        user_namespace.add_gid_mapping(0, getgid() as u64, 1);
+        user_namespace.add_uid_mapping(0, unsafe {libc::getuid()} as u64, 1);
+        user_namespace.add_gid_mapping(0, unsafe {libc::getgid()} as u64, 1);
         // TODO(dgreid) - add test with each network namespace
         let mut c = Container::new("asdf",
                                    argv,

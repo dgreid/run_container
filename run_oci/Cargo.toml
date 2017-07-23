@@ -11,6 +11,6 @@ panic = 'abort'
 container = { path = "../container" }
 container_config = { path = "../container_config" }
 getopts = "*"
-nix = { git = "http://github.com/nix-rust/nix.git" }
+libc = "*"
 serde = "*"
 serde_json = "*"

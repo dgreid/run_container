@@ -11,6 +11,9 @@ use std::path::{StripPrefixError, Path, PathBuf};
 
 #[derive(Debug)]
 pub enum Error {
+    Chmod(i32),
+    Chown(i32),
+    InvalidPath(NulError),
     NoMajor,
     NoMinor,
     MknodFailed(nix::Error),
@@ -29,12 +32,6 @@ impl From<nix::Error> for Error {
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error::DevDirectory(err)
-    }
-}
-
-impl From<NulError> for Error {
-    fn from(err: NulError) -> Error {
-        Error::PathNullError(err)
     }
 }
 
@@ -100,11 +97,19 @@ impl Device {
                                   .unwrap_or_else(Mode::empty),
                               nix::sys::stat::makedev(self.major.unwrap() as u64,
                                                       self.minor.unwrap() as u64))?;
-        let cpath = CString::new(dev_path.as_os_str().as_bytes());
-        cpath.map(|cstr| unsafe {
-                     nix::sys::ioctl::libc::chmod(cstr.as_ptr(), self.file_mode.unwrap_or(0));
-                 })?;
-        nix::unistd::chown(&dev_path, self.uid, self.gid)?;
+        let cpath = CString::new(dev_path.as_os_str().as_bytes())
+            .map_err(Error::InvalidPath)?;
+        unsafe {
+            // chown and chmod only read the path from memory.
+            if libc::chmod(cpath.as_ptr(), self.file_mode.unwrap_or(0)) < 0 {
+                return Err(Error::Chmod(*libc::__errno_location()));
+            }
+            if libc::chown(cpath.as_ptr() as *const i8,
+                           self.uid.unwrap_or(-1i32 as libc::uid_t),
+                           self.gid.unwrap_or(-1i32 as libc::gid_t)) < 0 {
+                return Err(Error::Chown(*libc::__errno_location()));
+            }
+        }
         Ok(())
     }
 

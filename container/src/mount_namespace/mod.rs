@@ -181,7 +181,6 @@ impl MountNamespace {
 mod test {
     extern crate nix;
     extern crate tempdir;
-    use self::nix::libc::pid_t;
     use self::nix::mount::*;
     use self::nix::sched::*;
     use self::nix::sys::wait;
@@ -191,7 +190,7 @@ mod test {
     use std::path::PathBuf;
     use super::MountNamespace;
 
-    fn wait_child_exit(pid: pid_t) {
+    fn wait_child_exit(pid: nix::unistd::Pid) {
         loop {
             match wait::waitpid(pid, Some(wait::__WALL)) {
                 Ok(WaitStatus::Exited(..)) => break,
@@ -200,6 +199,7 @@ mod test {
                 Ok(WaitStatus::Continued(..)) => (),
                 Ok(WaitStatus::StillAlive) => (),
                 Ok(WaitStatus::PtraceEvent(..)) => (),
+                Ok(WaitStatus::PtraceSyscall(..)) => (),
                 Err(nix::Error::Sys(nix::Errno::EINTR)) => (), // Try again.
                 Err(_) => break,
             }
