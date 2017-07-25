@@ -45,7 +45,7 @@ pub struct OciProcess {
     #[serde(rename="apparmorProfile")]
     pub apparmor_profile: Option<bool>,
     #[serde(rename="selinuxLabel")]
-    pub selinux_label: Option<bool>,
+    pub selinux_label: Option<String>,
     #[serde(rename="noNewPrivileges")]
     pub no_new_privileges: Option<bool>,
 }

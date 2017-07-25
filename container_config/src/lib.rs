@@ -33,7 +33,7 @@ use self::nix::mount::*;
 use std::collections::HashMap;
 use std::io::{self, BufReader};
 use std::fs::File;
-use std::ffi::CString;
+use std::ffi::{self, CString};
 use std::path::{Path, PathBuf};
 
 use oci_config::*;
@@ -42,6 +42,7 @@ use oci_config::*;
 pub enum Error {
     CreatingCapConfig(caps::Error),
     Io(io::Error),
+    InvalidSelinuxLabel(ffi::NulError),
     MountSetup(mount_namespace::Error),
     ConfigParseError(serde_json::Error),
     NoLinuxNodeFoundError,
@@ -111,6 +112,7 @@ pub struct ContainerConfig {
     no_new_privileges: bool,
     rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
+    selinux_label: Option<CString>,
     additional_gids: Vec<u32>,
     uid: Option<uid_t>,
     sysctls: Option<Sysctls>,
@@ -135,6 +137,7 @@ impl ContainerConfig {
             no_new_privileges: false,
             rlimits: None,
             seccomp_jail: None,
+            selinux_label: None,
             additional_gids: Vec::new(),
             uid: None,
 	    sysctls: None,
@@ -232,6 +235,11 @@ impl ContainerConfig {
         self
     }
 
+    pub fn selinux_label(mut self, selinux_label: Option<CString>) -> ContainerConfig {
+        self.selinux_label = selinux_label;
+        self
+    }
+
     pub fn sysctls(mut self, sysctls: Option<HashMap<String, String>>) -> ContainerConfig {
         self.sysctls = sysctls.map(Sysctls::new);
         self
@@ -271,6 +279,7 @@ impl ContainerConfig {
                                    self.no_new_privileges,
                                    self.rlimits,
                                    self.seccomp_jail,
+                                   self.selinux_label,
                                    self.sysctls,
                                    true);
         c.start().map_err(Error::ContainerStartError)?;
@@ -362,6 +371,11 @@ fn container_from_oci(config: OciConfig,
         None => None,
     };
 
+    let selinux_label = match config.process.selinux_label {
+        None => None,
+        Some(s) => Some(CString::new(s).map_err(Error::InvalidSelinuxLabel)?),
+    };
+
     let additional_gids = config.process.user.additional_gids.map_or(Vec::new(), |g| g);
 
     let caps = match config.process.capabilities {
@@ -383,7 +397,8 @@ fn container_from_oci(config: OciConfig,
         .no_new_privileges(config.process.no_new_privileges.unwrap_or(false))
         .additional_gids(additional_gids)
         .rlimits(rlimits)
-        .seccomp_jail(seccomp_jail))
+        .seccomp_jail(seccomp_jail)
+        .selinux_label(selinux_label))
 }
 
 fn oci_has_namespace(linux: &OciLinux, namespace_type: &str) -> bool {

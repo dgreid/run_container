@@ -22,7 +22,9 @@ use self::libc::pid_t;
 use self::nix::sched::*;
 use std;
 use std::ffi::CString;
+use std::fs::File;
 use std::io;
+use std::io::Write;
 use std::path::PathBuf;
 
 pub struct Container {
@@ -39,6 +41,7 @@ pub struct Container {
     no_new_privileges: bool,
     rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
+    selinux_label: Option<CString>,
     sysctls: Option<Sysctls>,
     additional_groups: Vec<u32>,
     privileged: bool,
@@ -50,9 +53,12 @@ pub enum Error {
     BoundingCaps(caps::Error),
     CloneSyscall(i32),
     DroppingCaps(caps::Error),
+    GettingThreadID(i32),
     Io(io::Error),
     Nix(nix::Error),
+    OpenSelinuxAttr(io::Error),
     WaitPidFailed(i32),
+    WriteSelinuxLabel(io::Error),
     MountSetup(mount_namespace::Error),
     NetworkConfigureChild(net_namespace::Error),
     NetworkNamespaceConfigure(net_namespace::Error),
@@ -114,6 +120,27 @@ impl From<sysctls::Error> for Error {
     }
 }
 
+fn get_tid() -> Result<libc::pid_t> {
+    unsafe {
+        let tid = libc::syscall(SYS_gettid as i64);
+        if tid < 0 {
+            return Err(Error::GettingThreadID(*libc::__errno_location()));
+        }
+        Ok(tid as libc::pid_t)
+    }
+}
+
+fn do_selinux(label: &CString) -> Result<()> {
+    let tid = get_tid()?;
+    let exec_path = PathBuf::from(format!("/proc/self/task/{}/attr/exec", tid));
+    let mut f = File::create(exec_path)
+        .map_err(Error::OpenSelinuxAttr)?;
+    f.write_all(label.as_bytes())
+        .map_err(Error::WriteSelinuxLabel)?;
+    Ok(())
+}
+
+
 impl Container {
     pub fn new(name: &str,
                argv: Vec<CString>,
@@ -128,6 +155,7 @@ impl Container {
                no_new_privileges: bool,
                rlimits: Option<RLimits>,
                seccomp_jail: Option<SeccompJail>,
+               selinux_label: Option<CString>,
                sysctls: Option<Sysctls>,
                privileged: bool)
                -> Self {
@@ -146,6 +174,7 @@ impl Container {
             no_new_privileges: no_new_privileges,
             rlimits: rlimits,
             seccomp_jail: seccomp_jail,
+            selinux_label: selinux_label,
             sysctls: sysctls,
             privileged: privileged,
             pid: 0,
@@ -178,6 +207,9 @@ impl Container {
     }
 
     fn enter_jail_in_ns(&self) -> Result<()> {
+        // Start by setting selinux label - When should selinux be enabled?
+        self.selinux_label.as_ref().map_or(Ok(()), |l| do_selinux(l))?;
+
         if self.no_new_privileges {
             unsafe {
                 // Calling prctl is safe, it doesn't touch memory.
@@ -436,6 +468,7 @@ mod test {
                                    false,
                                    None,
                                    Some(seccomp_jail),
+                                   None,
                                    None,
                                    true);
         assert_eq!("asdf", c.name());
