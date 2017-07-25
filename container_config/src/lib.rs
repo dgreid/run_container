@@ -40,22 +40,22 @@ use oci_config::*;
 
 #[derive(Debug)]
 pub enum Error {
-    CreatingCapConfig(caps::Error),
-    Io(io::Error),
-    InvalidSelinuxLabel(ffi::NulError),
-    MountSetup(mount_namespace::Error),
-    ConfigParseError(serde_json::Error),
-    NoLinuxNodeFoundError,
-    HostnameInvalid(String),
-    SeccompError(seccomp_jail::Error),
-    ContainerStartError(container::container::Error),
-    CGroupError(cgroup::Error),
     CGroupConfigError(cgroup_configuration::Error),
+    CGroupError(cgroup::Error),
+    ConfigParseError(serde_json::Error),
+    ContainerStartError(container::container::Error),
+    CreatingCapConfig(caps::Error),
     DeviceError(devices::Error),
+    HostnameInvalid(String),
+    InvalidDeviceType,
+    InvalidSelinuxLabel(ffi::NulError),
+    Io(io::Error),
+    MountSetup(mount_namespace::Error),
+    NoDevicesFound,
+    NoLinuxNodeFoundError,
     ParseIntError(std::num::ParseIntError),
     RLimitError(rlimits::Error),
-    InvalidDeviceType,
-    NoDevicesFound,
+    SeccompError(seccomp_jail::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
