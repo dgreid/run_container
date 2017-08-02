@@ -266,7 +266,7 @@ impl Container {
     }
 
     fn enter_jail(&self) -> Result<()> {
-	unsafe {
+        unsafe {
             // Setting the uid or gid doesn't touch memory.
             if libc::setresuid(0, 0, 0) < 0 {
                 return Err(Error::SettingRootUid(*libc::__errno_location()));
