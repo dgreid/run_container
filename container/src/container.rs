@@ -329,7 +329,8 @@ impl Container {
         }
     }
 
-    fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<()> {
+    fn parent_setup(&mut self, ns_ready_signal: SyncPipe, ns_setup_complete: SyncPipe)
+            -> Result<()> {
         self.user_namespace
             .as_ref()
             .map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))
@@ -349,18 +350,23 @@ impl Container {
             .map_or(Ok(()), |r| r.configure(self.pid))
             .map_err(Error::RLimitsError)?;
 
+        ns_ready_signal.signal().map_err(Error::SignalChild)?;
+        ns_setup_complete.wait().map_err(Error::SignalChild)?;
         for h in self.prestart_hooks.iter() {
             h.run().map_err(Error::HookFailure)?;
         }
-        sync_pipe.signal().map_err(Error::SignalChild)?;
+        ns_ready_signal.signal().map_err(Error::SignalChild)?;
         Ok(())
     }
 
     // The client should panic on all failures
-    fn run_child(&self, sync_pipe: SyncPipe) {
-        sync_pipe.wait().unwrap();
-        drop(sync_pipe); // Done with the pipe.
+    fn run_child(&self, ns_ready_signal: SyncPipe, ns_setup_complete: SyncPipe) {
+        ns_ready_signal.wait().unwrap();
         self.enter_jail().unwrap();
+        ns_setup_complete.signal().unwrap();
+        drop(ns_setup_complete); // Make sure the FD is closed.
+        ns_ready_signal.wait().unwrap(); // Wait for post NS setup by the parent.
+        drop(ns_ready_signal); // Done with the pipe.
         nix::unistd::execv(&self.argv[0], &self.argv).unwrap();
         panic!("Failed to execute program");
     }
@@ -376,7 +382,8 @@ impl Container {
             .map_or(Ok(()), |ref mut d| d.pre_fork_setup(mode))
             .map_err(Error::PreForkDeviceSetup)?;
 
-        let sync_pipe = SyncPipe::new().map_err(Error::SyncPipeCreation)?;
+        let ns_ready_signal = SyncPipe::new().map_err(Error::SyncPipeCreation)?;
+        let ns_setup_complete = SyncPipe::new().map_err(Error::SyncPipeCreation)?;
         let pid = self.do_clone()?;
         match pid {
             0 => {
@@ -388,12 +395,12 @@ impl Container {
                 // nix::sys::syscall::syscall(SYS_getpid as i64));
                 // }
                 //
-                self.run_child(sync_pipe);
+                self.run_child(ns_ready_signal, ns_setup_complete);
             }
             _ => {
                 // parent
                 self.pid = pid;
-                self.parent_setup(sync_pipe)?;
+                self.parent_setup(ns_ready_signal, ns_setup_complete)?;
                 for h in self.poststart_hooks.iter() {
                     h.run().map_err(Error::HookFailure)?;
                 }
