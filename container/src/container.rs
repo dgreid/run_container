@@ -6,6 +6,7 @@ use self::caps::CapConfig;
 use cgroup::{self, CGroup};
 use cgroup_namespace::{self, CGroupNamespace};
 use devices::{self, DeviceConfig};
+use hook::{self, Hook};
 use mount_namespace::{self, MountNamespace};
 use net_namespace;
 use net_namespace::NetNamespace;
@@ -44,6 +45,9 @@ pub struct Container {
     selinux_label: Option<CString>,
     sysctls: Option<Sysctls>,
     additional_groups: Vec<u32>,
+    poststart_hooks: Vec<Hook>,
+    poststop_hooks: Vec<Hook>,
+    prestart_hooks: Vec<Hook>,
     privileged: bool,
     pid: pid_t,
 }
@@ -57,6 +61,7 @@ pub enum Error {
     CloneSyscall(i32),
     DroppingCaps(caps::Error),
     GettingThreadID(i32),
+    HookFailure(hook::Error),
     InvalidCGroup,
     Io(io::Error),
     MountSetup(mount_namespace::Error),
@@ -153,6 +158,9 @@ impl Container {
                user_namespace: Option<UserNamespace>,
                additional_groups: Vec<u32>,
                no_new_privileges: bool,
+               poststart_hooks: Vec<Hook>,
+               poststop_hooks: Vec<Hook>,
+               prestart_hooks: Vec<Hook>,
                rlimits: Option<RLimits>,
                seccomp_jail: Option<SeccompJail>,
                selinux_label: Option<CString>,
@@ -176,6 +184,9 @@ impl Container {
             seccomp_jail: seccomp_jail,
             selinux_label: selinux_label,
             sysctls: sysctls,
+            poststart_hooks: poststart_hooks,
+            poststop_hooks: poststop_hooks,
+            prestart_hooks: prestart_hooks,
             privileged: privileged,
             pid: 0,
         }
@@ -338,6 +349,9 @@ impl Container {
             .map_or(Ok(()), |r| r.configure(self.pid))
             .map_err(Error::RLimitsError)?;
 
+        for h in self.prestart_hooks.iter() {
+            h.run().map_err(Error::HookFailure)?;
+        }
         sync_pipe.signal().map_err(Error::SignalChild)?;
         Ok(())
     }
@@ -380,6 +394,9 @@ impl Container {
                 // parent
                 self.pid = pid;
                 self.parent_setup(sync_pipe)?;
+                for h in self.poststart_hooks.iter() {
+                    h.run().map_err(Error::HookFailure)?;
+                }
             }
         }
         Ok(())
@@ -399,6 +416,9 @@ impl Container {
                 }
                 break;
             }
+        }
+        for h in self.poststop_hooks.iter() {
+            h.run().map_err(Error::HookFailure)?;
         }
         Ok(())
     }
@@ -466,6 +486,9 @@ mod test {
                                    Some(user_namespace),
                                    Vec::new(),
                                    false,
+                                   Vec::new(),
+                                   Vec::new(),
+                                   Vec::new(),
                                    None,
                                    Some(seccomp_jail),
                                    None,

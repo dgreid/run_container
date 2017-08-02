@@ -9,3 +9,4 @@ nix = "*"
 tempdir = "*"
 seccomp-sys = "*"
 caps = { path = "../caps" }
+wait-timeout = "*"

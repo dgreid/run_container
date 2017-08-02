@@ -20,6 +20,7 @@ use container::cgroup::cgroup_configuration::{self, CGroupConfiguration,
                                               FreezerCGroupConfiguration};
 use container::cgroup_namespace::CGroupNamespace;
 use container::devices::{self, DeviceConfig, DeviceType};
+use container::hook::Hook;
 use container::mount_namespace::{self, MountNamespace};
 use container::net_namespace::{EmptyNetNamespace, NetNamespace};
 use container::rlimits::{self, RLimits};
@@ -110,6 +111,9 @@ pub struct ContainerConfig {
     user_namespace: Option<UserNamespace>,
     net_namespace: Option<Box<NetNamespace>>,
     no_new_privileges: bool,
+    poststart_hooks: Vec<Hook>,
+    poststop_hooks: Vec<Hook>,
+    prestart_hooks: Vec<Hook>,
     rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
     selinux_label: Option<CString>,
@@ -135,6 +139,9 @@ impl ContainerConfig {
             user_namespace: None,
             net_namespace: None,
             no_new_privileges: false,
+            poststart_hooks: Vec::new(),
+            poststop_hooks: Vec::new(),
+            prestart_hooks: Vec::new(),
             rlimits: None,
             seccomp_jail: None,
             selinux_label: None,
@@ -185,6 +192,21 @@ impl ContainerConfig {
                          device_config: DeviceConfig)
                          -> ContainerConfig {
         self.device_config = Some(device_config);
+        self
+    }
+
+    pub fn poststart_hooks(mut self, hooks: Vec<Hook>) -> ContainerConfig {
+        self.poststart_hooks = hooks;
+        self
+    }
+
+    pub fn poststop_hooks(mut self, hooks: Vec<Hook>) -> ContainerConfig {
+        self.poststop_hooks = hooks;
+        self
+    }
+
+    pub fn prestart_hooks(mut self, hooks: Vec<Hook>) -> ContainerConfig {
+        self.prestart_hooks = hooks;
         self
     }
 
@@ -277,6 +299,9 @@ impl ContainerConfig {
                                    self.user_namespace,
                                    self.additional_gids,
                                    self.no_new_privileges,
+                                   self.poststart_hooks,
+                                   self.poststop_hooks,
+                                   self.prestart_hooks,
                                    self.rlimits,
                                    self.seccomp_jail,
                                    self.selinux_label,
@@ -383,6 +408,30 @@ fn container_from_oci(config: OciConfig,
         Some(c) => Some(capabilities_from_oci(c, securebits_unlock_mask)?),
     };
 
+    let poststart_hooks = match config.hooks {
+        None => Vec::new(),
+        Some(ref h) => match h.poststart {
+            None => Vec::new(),
+            Some(ref p) => hooks_from_oci(&p),
+        },
+    };
+
+    let poststop_hooks = match config.hooks {
+        None => Vec::new(),
+        Some(ref h) => match h.poststop {
+            None => Vec::new(),
+            Some(ref p) => hooks_from_oci(&p),
+        },
+    };
+
+    let prestart_hooks = match config.hooks {
+        None => Vec::new(),
+        Some(ref h) => match h.prestart {
+            None => Vec::new(),
+            Some(ref p) => hooks_from_oci(&p),
+        },
+    };
+
     Ok(ContainerConfig::new(hostname)
         .alt_syscall_table(None)
         .argv(argv)
@@ -390,6 +439,9 @@ fn container_from_oci(config: OciConfig,
         .cgroup_namespace(cgroup_ns)
         .cgroup_configs(cgroup_configs)
         .device_config(device_config)
+        .poststart_hooks(poststart_hooks)
+        .poststop_hooks(poststop_hooks)
+        .prestart_hooks(prestart_hooks)
         .mount_namespace(mnt_ns)
         .user_namespace(Some(user_ns))
         .uid(Some(config.process.user.uid as uid_t))
@@ -660,6 +712,20 @@ fn cpuset_cgroup_config(config: &OciLinuxCgroupCpu)
     }
 
     Ok(cpuset_config)
+}
+
+fn hooks_from_oci(hook_params: &[OciHook]) -> Vec<Hook> {
+    let mut hooks_out = Vec::new();
+    for hook in hook_params.iter() {
+        let args = hook.args.as_ref().map_or(Vec::new(), |e| e.clone());
+        let env = hook.env.as_ref().map_or(Vec::new(), |e| e.clone());
+        let new_hook = Hook::new(&PathBuf::from(&hook.path))
+            .args(&args)
+            .envs(&env)
+            .timeout(hook.timeout.map(|sec| std::time::Duration::from_secs(sec as u64)));
+        hooks_out.push(new_hook);
+    }
+    hooks_out
 }
 
 #[cfg(test)]
