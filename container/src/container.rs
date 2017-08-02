@@ -318,7 +318,7 @@ impl Container {
         }
     }
 
-    pub fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<()> {
+    fn parent_setup(&mut self, sync_pipe: SyncPipe) -> Result<()> {
         self.user_namespace
             .as_ref()
             .map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))
@@ -343,7 +343,7 @@ impl Container {
     }
 
     // The client should panic on all failures
-    pub fn run_child(&self, sync_pipe: SyncPipe) {
+    fn run_child(&self, sync_pipe: SyncPipe) {
         sync_pipe.wait().unwrap();
         drop(sync_pipe); // Done with the pipe.
         self.enter_jail().unwrap();
