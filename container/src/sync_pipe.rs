@@ -119,6 +119,8 @@ mod test {
         let s = SyncPipe::new().unwrap();
         assert!(s.signal().is_ok());
         assert!(s.wait().is_ok());
+        assert!(s.signal().is_ok());
+        assert!(s.wait().is_ok());
     }
 
     #[test]
