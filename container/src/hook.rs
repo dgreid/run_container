@@ -5,6 +5,7 @@ use self::wait_timeout::ChildExt;
 use std;
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::string::ToString;
@@ -16,8 +17,18 @@ pub enum Error {
     StartingCommand,
     TimedOut,
     WaitingForCommand,
+    WriteStdIn,
 }
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[allow(unused_variables)]
+pub trait HookState {
+    fn to_string(&self,
+                 pid: Option<u64>,
+                 status: &str) -> String {
+        String::new()
+    }
+}
 
 pub struct Hook {
     path: PathBuf,
@@ -63,12 +74,22 @@ impl Hook {
         self
     }
 
-    pub fn run(&self) -> Result<()> {
+    pub fn run(&self, status: Option<String>) -> Result<()> {
         let mut child = process::Command::new(&self.path)
+            .stdin(process::Stdio::piped())
             .args(&self.args)
             .envs(&self.env)
             .spawn()
             .map_err(|_| Error::StartingCommand)?;
+
+        // Give the program the state on stdin.
+        // unwrap is OK as we know we set stdin above.
+        if let Some(ref status) = status {
+            child.stdin.as_mut().unwrap()
+                .write_all(status.as_bytes())
+                .map_err(|_| Error::WriteStdIn)?;
+        }
+
         if let Some(timeout) = self.timeout {
             let wait_ret = child.wait_timeout(timeout)
                 .map_err(|_| Error::WaitingForCommand)?;
@@ -105,13 +126,19 @@ mod test {
     fn basic_hook() {
         let hook = Hook::new(&PathBuf::from("/bin/ls"))
             .args(&["/"]);
-        assert_eq!(hook.run(), Ok(()));
+        assert_eq!(hook.run(None), Ok(()));
+    }
+
+    #[test]
+    fn basic_state() {
+        let hook = Hook::new(&PathBuf::from("/bin/cat"));
+        assert_eq!(hook.run(Some("This would be json formatted\n".to_string())), Ok(()));
     }
 
     #[test]
     fn basic_env() {
         let hook = Hook::new(&PathBuf::from("/usr/bin/env"))
             .envs(&["SILLYENV1=one".to_string(), "SILLYENV2=two".to_string()]);
-        assert_eq!(hook.run(), Ok(()));
+        assert_eq!(hook.run(None), Ok(()));
     }
 }

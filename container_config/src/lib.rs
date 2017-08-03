@@ -20,7 +20,7 @@ use container::cgroup::cgroup_configuration::{self, CGroupConfiguration,
                                               FreezerCGroupConfiguration};
 use container::cgroup_namespace::CGroupNamespace;
 use container::devices::{self, DeviceConfig, DeviceType};
-use container::hook::Hook;
+use container::hook::{Hook, HookState};
 use container::mount_namespace::{self, MountNamespace};
 use container::net_namespace::{EmptyNetNamespace, NetNamespace};
 use container::rlimits::{self, RLimits};
@@ -114,6 +114,7 @@ pub struct ContainerConfig {
     poststart_hooks: Vec<Hook>,
     poststop_hooks: Vec<Hook>,
     prestart_hooks: Vec<Hook>,
+    hook_template: Option<Box<HookState>>,
     rlimits: Option<RLimits>,
     seccomp_jail: Option<SeccompJail>,
     selinux_label: Option<CString>,
@@ -142,6 +143,7 @@ impl ContainerConfig {
             poststart_hooks: Vec::new(),
             poststop_hooks: Vec::new(),
             prestart_hooks: Vec::new(),
+            hook_template: None,
             rlimits: None,
             seccomp_jail: None,
             selinux_label: None,
@@ -207,6 +209,12 @@ impl ContainerConfig {
 
     pub fn prestart_hooks(mut self, hooks: Vec<Hook>) -> ContainerConfig {
         self.prestart_hooks = hooks;
+        self
+    }
+
+    pub fn hook_status_template(mut self, template: Option<Box<HookState>>)
+            -> ContainerConfig {
+        self.hook_template = template;
         self
     }
 
@@ -302,6 +310,7 @@ impl ContainerConfig {
                                    self.poststart_hooks,
                                    self.poststop_hooks,
                                    self.prestart_hooks,
+                                   self.hook_template,
                                    self.rlimits,
                                    self.seccomp_jail,
                                    self.selinux_label,
@@ -408,6 +417,14 @@ fn container_from_oci(config: OciConfig,
         Some(c) => Some(capabilities_from_oci(c, securebits_unlock_mask)?),
     };
 
+    let hook_status_template = Box::new(OciState {
+        oci_version: config.oci_version.clone(),
+        id: String::new(),
+        status: String::new(),
+        pid: None,
+        bundle: path.to_str().unwrap().to_string()
+    });
+
     let poststart_hooks = match config.hooks {
         None => Vec::new(),
         Some(ref h) => match h.poststart {
@@ -442,6 +459,7 @@ fn container_from_oci(config: OciConfig,
         .poststart_hooks(poststart_hooks)
         .poststop_hooks(poststop_hooks)
         .prestart_hooks(prestart_hooks)
+        .hook_status_template(Some(hook_status_template))
         .mount_namespace(mnt_ns)
         .user_namespace(Some(user_ns))
         .uid(Some(config.process.user.uid as uid_t))

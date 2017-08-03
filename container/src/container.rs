@@ -6,7 +6,7 @@ use self::caps::CapConfig;
 use cgroup::{self, CGroup};
 use cgroup_namespace::{self, CGroupNamespace};
 use devices::{self, DeviceConfig};
-use hook::{self, Hook};
+use hook::{self, Hook, HookState};
 use mount_namespace::{self, MountNamespace};
 use net_namespace;
 use net_namespace::NetNamespace;
@@ -48,6 +48,7 @@ pub struct Container {
     poststart_hooks: Vec<Hook>,
     poststop_hooks: Vec<Hook>,
     prestart_hooks: Vec<Hook>,
+    hook_template: Option<Box<HookState>>,
     privileged: bool,
     pid: pid_t,
 }
@@ -161,6 +162,7 @@ impl Container {
                poststart_hooks: Vec<Hook>,
                poststop_hooks: Vec<Hook>,
                prestart_hooks: Vec<Hook>,
+               hook_state: Option<Box<HookState>>,
                rlimits: Option<RLimits>,
                seccomp_jail: Option<SeccompJail>,
                selinux_label: Option<CString>,
@@ -187,6 +189,7 @@ impl Container {
             poststart_hooks: poststart_hooks,
             poststop_hooks: poststop_hooks,
             prestart_hooks: prestart_hooks,
+            hook_template: hook_state,
             privileged: privileged,
             pid: 0,
         }
@@ -353,7 +356,9 @@ impl Container {
         ns_ready_signal.signal().map_err(Error::SignalChild)?;
         ns_setup_complete.wait().map_err(Error::SignalChild)?;
         for h in self.prestart_hooks.iter() {
-            h.run().map_err(Error::HookFailure)?;
+            h.run(self.hook_template.as_ref().map(|t|
+                        t.to_string(Some(self.pid as u64), "created")))
+                .map_err(Error::HookFailure)?;
         }
         ns_ready_signal.signal().map_err(Error::SignalChild)?;
         Ok(())
@@ -402,7 +407,9 @@ impl Container {
                 self.pid = pid;
                 self.parent_setup(ns_ready_signal, ns_setup_complete)?;
                 for h in self.poststart_hooks.iter() {
-                    h.run().map_err(Error::HookFailure)?;
+                    h.run(self.hook_template.as_ref().map(|t|
+                                t.to_string(Some(self.pid as u64), "started")))
+                        .map_err(Error::HookFailure)?;
                 }
             }
         }
@@ -425,7 +432,9 @@ impl Container {
             }
         }
         for h in self.poststop_hooks.iter() {
-            h.run().map_err(Error::HookFailure)?;
+            h.run(self.hook_template.as_ref().map(|t|
+                    t.to_string(Some(self.pid as u64), "stopped")))
+                .map_err(Error::HookFailure)?;
         }
         Ok(())
     }
@@ -496,6 +505,7 @@ mod test {
                                    Vec::new(),
                                    Vec::new(),
                                    Vec::new(),
+                                   None,
                                    None,
                                    Some(seccomp_jail),
                                    None,

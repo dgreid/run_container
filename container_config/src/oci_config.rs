@@ -1,5 +1,7 @@
+extern crate container;
 extern crate serde;
 extern crate serde_json;
+use container::hook::HookState;
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize)]
@@ -277,6 +279,32 @@ pub struct OciConfig {
     pub mounts: Option<Vec<OciMount>>,
     pub hooks: Option<OciHooks>,
     pub linux: Option<OciLinux>, // TODO - Annotations
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OciState {
+    #[serde(rename="ociVersion")]
+    pub oci_version: String,
+    pub id: String,
+    pub status: String,
+    pub pid: Option<u64>,
+    pub bundle: String,
+    // TODO - annotations
+}
+
+impl HookState for OciState {
+    fn to_string(&self,
+                 pid: Option<u64>,
+                 status: &str) -> String {
+        let out = OciState {
+            oci_version: self.oci_version.clone(),
+            id: self.id.clone(),
+            status: status.to_string(),
+            pid: pid,
+            bundle: self.bundle.clone(),
+        };
+        serde_json::to_string(&out).unwrap()
+    }
 }
 
 #[cfg(test)]
