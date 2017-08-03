@@ -717,7 +717,13 @@ fn cpuset_cgroup_config(config: &OciLinuxCgroupCpu)
 fn hooks_from_oci(hook_params: &[OciHook]) -> Vec<Hook> {
     let mut hooks_out = Vec::new();
     for hook in hook_params.iter() {
-        let args = hook.args.as_ref().map_or(Vec::new(), |e| e.clone());
+        let args = hook.args.as_ref().map_or(Vec::new(), |e| {
+            if e.len() > 1 {
+                e[1..].to_vec()
+            } else {
+                Vec::new()
+            }
+        });
         let env = hook.env.as_ref().map_or(Vec::new(), |e| e.clone());
         let new_hook = Hook::new(&PathBuf::from(&hook.path))
             .args(&args)
