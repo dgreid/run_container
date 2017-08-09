@@ -2,6 +2,7 @@ extern crate libc;
 extern crate nix;
 
 use self::libc::pid_t;
+use std;
 use std::io;
 use std::process::Command;
 
@@ -9,9 +10,23 @@ use std::process::Command;
 
 #[derive(Debug)]
 pub enum Error {
+    AddingVethInterfaces(io::Error),
+    AddingInterfaceToBridge(io::Error),
+    EnablingBridgeInterface(io::Error),
+    EnablingContainerVeth(io::Error),
+    EnablingHostVeth(io::Error),
+    EnablingLoopback(io::Error),
+    EnablingV4Forward(io::Error),
     Io(io::Error),
     NetNamespaceDeviceSetupFailed,
+    SettingAcceptRule(io::Error),
+    SettingDefaultRoute(io::Error),
+    SettingForwardRule(io::Error),
+    SettingInterfaceAddress(io::Error),
+    SettingNatRule(io::Error),
+    SettingNetNamespace(io::Error),
 }
+pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
@@ -19,15 +34,15 @@ impl From<io::Error> for Error {
     }
 }
 
-fn enable_device(dev: &str) -> Result<(), Error> {
+fn enable_device(dev: &str) -> std::result::Result<(), io::Error> {
     Command::new("ip").args(&["link", "set", dev, "up"])
         .status()?;
     Ok(())
 }
 
 pub trait NetNamespace {
-    fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error>;
-    fn configure_in_child(&self) -> Result<(), Error>;
+    fn configure_for_pid(&self, pid: pid_t) -> Result<()>;
+    fn configure_in_child(&self) -> Result<()>;
 }
 
 pub struct NatNetNamespace {
@@ -50,27 +65,33 @@ impl NatNetNamespace {
 }
 
 impl NetNamespace for NatNetNamespace {
-    fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error> {
+    fn configure_for_pid(&self, pid: pid_t) -> Result<()> {
         // Crate a veth pair, set up masquerade for one port, give the other to
         // the pid's net namespace.
         // TODO - don't hard-code veth0,veth1
         Command::new("ip").args(&["link", "add", "veth0", "type", "veth", "peer", "name", "veth1"])
-            .status()?;
+            .status()
+            .map_err(Error::AddingVethInterfaces)?;
         let mut host_ip_mask = self.ip_addr.clone();
         host_ip_mask.push_str("/24");
         Command::new("ip").args(&["addr", "add", &host_ip_mask, "dev", "veth0"])
-            .status()?;
+            .status()
+            .map_err(Error::SettingInterfaceAddress)?;
         Command::new("ip").args(&["link", "set", "veth0", "up"])
-            .status()?;
+            .status()
+            .map_err(Error::EnablingHostVeth)?;
         Command::new("ip").args(&["link", "set", "veth1", "up"])
-            .status()?;
+            .status()
+            .map_err(Error::EnablingContainerVeth)?;
         Command::new("ip").args(&["link", "set", "veth1", "netns", &pid.to_string()])
-            .status()?;
+            .status()
+            .map_err(Error::SettingNetNamespace)?;
         // iptables nat masquerade setup
         for iface in self.upstream_ifaces.iter() {
             Command::new("iptables")
                 .args(&["-t", "nat", "-A", "POSTROUTING", "-o", &iface, "-j", "MASQUERADE"])
-                .status()?;
+                .status()
+                .map_err(Error::SettingNatRule)?;
             Command::new("iptables").args(&["-A",
                         "FORWARD",
                         "-i",
@@ -83,29 +104,35 @@ impl NetNamespace for NatNetNamespace {
                         "RELATED,ESTABLISHED",
                         "-j",
                         "ACCEPT"])
-                .status()?;
+                .status()
+                .map_err(Error::SettingForwardRule)?;
             Command::new("iptables")
                 .args(&["-A", "FORWARD", "-i", "veth0", "-o", iface, "-j", "ACCEPT"])
-                .status()?;
+                .status()
+                .map_err(Error::SettingAcceptRule)?;
         }
         Command::new("sysctl").arg("net.ipv4.ip_forward=1")
-            .status()?;
+            .status()
+            .map_err(Error::EnablingV4Forward)?;
 
         Ok(())
     }
 
-    fn configure_in_child(&self) -> Result<(), Error> {
+    fn configure_in_child(&self) -> Result<()> {
         if let Some(ref namespace_addr) = self.namespace_addr {
             let mut container_ip_mask = namespace_addr.clone();
             container_ip_mask.push_str("/24");
             Command::new("ip").args(&["addr", "add", &container_ip_mask, "dev", "veth1"])
-                .status()?;
+                .status()
+                .map_err(Error::SettingInterfaceAddress)?;
             Command::new("ip").args(&["link", "set", "veth1", "up"])
-                .status()?;
+                .status()
+                .map_err(Error::EnablingContainerVeth)?;
             Command::new("ip").args(&["route", "add", "default", "via", &self.ip_addr])
-                .status()?;
+                .status()
+                .map_err(Error::SettingDefaultRoute)?;
         }
-        enable_device("lo")?;
+        enable_device("lo").map_err(Error::EnablingLoopback)?;
         Ok(())
     }
 }
@@ -131,21 +158,22 @@ impl BridgedNetNamespace {
         }
     }
 
-    fn create_bridge(&self) -> Result<(), Error> {
+    fn create_bridge(&self) -> Result<()> {
         let status = Command::new("brctl")
             .args(&["addbr", &self.bridge_name])
             .status();
         // Allowed to fail if the bridge already exists.
         if status.is_ok() {
             Command::new("brctl").args(&["addif", &self.bridge_name, &self.upstream_iface])
-                .status()?;
+                .status()
+                .map_err(Error::AddingInterfaceToBridge)?;
         }
         Ok(())
     }
 }
 
 impl NetNamespace for BridgedNetNamespace {
-    fn configure_for_pid(&self, pid: pid_t) -> Result<(), Error> {
+    fn configure_for_pid(&self, pid: pid_t) -> Result<()> {
         // If it doesn't exist, create the bridge and add the upstream interface
         self.create_bridge()?;
 
@@ -155,30 +183,40 @@ impl NetNamespace for BridgedNetNamespace {
         // to enable multiple containers
         Command::new("ip")
             .args(&["link", "add", "vethC0Host", "type", "veth", "peer", "name", "vethC0"])
-            .status()?;
+            .status()
+            .map_err(Error::AddingVethInterfaces)?;
         Command::new("ip").args(&["link", "set", "vethC0Host", "up"])
-            .status()?;
+            .status()
+            .map_err(Error::EnablingHostVeth)?;
         Command::new("brctl").args(&["addif", &self.bridge_name, "vethC0Host"])
-            .status()?;
+            .status()
+            .map_err(Error::AddingInterfaceToBridge)?;
         Command::new("ip").args(&["link", "set", &self.bridge_name, "up"])
-            .status()?;
+            .status()
+            .map_err(Error::EnablingBridgeInterface)?;
         Command::new("ip").args(&["link", "set", "vethC0Host", "up"])
-            .status()?;
+            .status()
+            .map_err(Error::EnablingHostVeth)?;
         Command::new("ip").args(&["link", "set", "vethC0", "netns", &pid.to_string()])
-            .status()?;
+            .status()
+            .map_err(Error::SettingNetNamespace)?;
         Command::new("ip").args(&["link", "set", &self.upstream_iface, "up"])
-            .status()?;
+            .status()
+            .map_err(Error::EnablingContainerVeth)?;
         Ok(())
     }
 
-    fn configure_in_child(&self) -> Result<(), Error> {
+    fn configure_in_child(&self) -> Result<()> {
         Command::new("ip").args(&["addr", "add", &self.namespace_ip, "dev", "vethC0"])
-            .status()?;
+            .status()
+            .map_err(Error::SettingInterfaceAddress)?;
         Command::new("ip").args(&["link", "set", "vethC0", "up"])
-            .status()?;
+            .status()
+            .map_err(Error::EnablingContainerVeth)?;
         Command::new("ip").args(&["route", "add", "default", "via", &self.default_route_ip])
-            .status()?;
-        enable_device("lo")?;
+            .status()
+            .map_err(Error::SettingDefaultRoute)?;
+        enable_device("lo").map_err(Error::EnablingLoopback)?;
         Ok(())
     }
 }
@@ -192,14 +230,14 @@ impl EmptyNetNamespace {
 }
 
 impl NetNamespace for EmptyNetNamespace {
-    fn configure_for_pid(&self, _: pid_t) -> Result<(), Error> {
+    fn configure_for_pid(&self, _: pid_t) -> Result<()> {
         // Only loopback to bring up, that is handled in the child.
         Ok(())
     }
 
-    fn configure_in_child(&self) -> Result<(), Error> {
+    fn configure_in_child(&self) -> Result<()> {
         // Only loopback to bring up.
-        enable_device("lo")?;
+        enable_device("lo").map_err(Error::EnablingLoopback)?;
         Ok(())
     }
 }
