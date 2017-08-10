@@ -28,12 +28,6 @@ pub enum Error {
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::Io(err)
-    }
-}
-
 fn enable_device(dev: &str) -> std::result::Result<(), io::Error> {
     Command::new("ip").args(&["link", "set", dev, "up"])
         .status()?;
