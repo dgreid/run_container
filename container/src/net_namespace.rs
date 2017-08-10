@@ -1,5 +1,4 @@
 extern crate libc;
-extern crate nix;
 
 use self::libc::pid_t;
 use std;
