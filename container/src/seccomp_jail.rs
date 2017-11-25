@@ -99,7 +99,7 @@ impl SeccompConfig {
             name: syscall_name.to_string(),
             action: action.to_string(),
         };
-        let mut ops = self.rules.entry(hash_key).or_insert_with(Vec::new);
+        let ops = self.rules.entry(hash_key).or_insert_with(Vec::new);
         if let (Some(op), Some(arg_index)) = (op, arg_index) {
             ops.push(seccomp_sys::scmp_arg_cmp {
                          arg: arg_index,
