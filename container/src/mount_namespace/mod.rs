@@ -88,8 +88,8 @@ impl MountNamespace {
             return Err(Error::InvalidRootPath);
         }
 
-        try!(nix::sched::unshare(nix::sched::CLONE_NEWNS));
-        try!(self.remount_private());
+        nix::sched::unshare(nix::sched::CLONE_NEWNS)?;
+        self.remount_private()?;
 
         if post_setup(&self.root).is_err() {
             return Err(Error::PostSetupCallback);
@@ -132,36 +132,36 @@ impl MountNamespace {
     // Enter the pivot root root fs for the jailed app
     fn enter_pivot_root(&self) -> nix::Result<()> {
         // Keep both old and new root open to fchdir into later.
-        let old_root = try!(OpenDir::new(Path::new("/")));
-        let new_root = try!(OpenDir::new(self.root.as_path()));
+        let old_root = OpenDir::new(Path::new("/"))?;
+        let new_root = OpenDir::new(self.root.as_path())?;
 
         // To ensure j->chrootdir is the root of a filesystem,
         // do a self bind mount.
-        try!(nix::mount::mount(Some(self.root.as_path()),
-                               self.root.as_path(),
-                               None::<&Path>,
-                               MS_BIND | MS_REC,
-                               None::<&Path>));
-        try!(nix::unistd::chdir(self.root.as_path()));
-        try!(nix::unistd::pivot_root(".", "."));
+        nix::mount::mount(Some(self.root.as_path()),
+                          self.root.as_path(),
+                          None::<&Path>,
+                          MS_BIND | MS_REC,
+                          None::<&Path>)?;
+        nix::unistd::chdir(self.root.as_path())?;
+        nix::unistd::pivot_root(".", ".")?;
 
         // unmount old root
         // Now the old root is mounted on top of the new root. Use fchdir(2) to
         // change to the old root and unmount it.
-        try!(old_root.chdir());
+        old_root.chdir()?;
         // The old root might be busy, so use lazy unmount.
-        try!(nix::mount::umount2(".", MNT_DETACH));
+        nix::mount::umount2(".", MNT_DETACH)?;
 
         // Change back to the new root.
-        try!(new_root.chdir());
+        new_root.chdir()?;
 
         // Close open directories before setting cwd to /.
         drop(old_root);
         drop(new_root);
 
-        try!(nix::unistd::chroot("/"));
+        nix::unistd::chroot("/")?;
         // Set correct CWD for getcwd(3).
-        try!(nix::unistd::chdir("/"));
+        nix::unistd::chdir("/")?;
 
         Ok(())
     }

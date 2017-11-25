@@ -80,7 +80,7 @@ fn op_from_string(op_str: &str) -> Result<seccomp_sys::scmp_compare, Error> {
 
 impl SeccompConfig {
     pub fn new(default_action: &str) -> Result<SeccompConfig, Error> {
-        let default_action = try!(action_from_string(default_action));
+        let default_action = action_from_string(default_action)?;
         Ok(SeccompConfig {
                default_action: default_action,
                rules: HashMap::new(),
