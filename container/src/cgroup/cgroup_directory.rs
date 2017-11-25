@@ -18,18 +18,10 @@ pub enum Error {
     Io(io::Error),
     InvalidPath(ffi::NulError),
     Nix(nix::Error),
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::Io(err)
-    }
-}
-
-impl From<nix::Error> for Error {
-    fn from(err: nix::Error) -> Error {
-        Error::Nix(err)
-    }
+    OpenCgroupFile(io::Error),
+    OpenTasksFile(io::Error),
+    WriteTasksFile(io::Error),
+    WriteCgroupFile(io::Error),
 }
 
 pub struct CGroupDirectory {
@@ -83,8 +75,10 @@ impl CGroupDirectory {
         let mut tasks_path = PathBuf::from(&self.path);
         tasks_path.push("tasks");
 
-        let mut tasks_file = fs::File::create(tasks_path.as_path())?;
-        tasks_file.write_all(pid.to_string().as_bytes())?;
+        let mut tasks_file = fs::File::create(tasks_path.as_path())
+            .map_err(Error::OpenTasksFile)?;
+        tasks_file.write_all(pid.to_string().as_bytes())
+            .map_err(Error::WriteTasksFile)?;
         Ok(())
     }
 
@@ -92,8 +86,10 @@ impl CGroupDirectory {
         let mut file_path = PathBuf::from(&self.path);
         file_path.push(name);
 
-        let mut file = fs::File::create(file_path.as_path())?;
-        file.write_all(val.as_bytes())?;
+        let mut file = fs::File::create(file_path.as_path())
+            .map_err(Error::OpenCgroupFile)?;
+        file.write_all(val.as_bytes())
+            .map_err(Error::WriteCgroupFile)?;
         Ok(())
     }
 }

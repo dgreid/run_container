@@ -7,16 +7,13 @@ use cgroup::cgroup_directory::{self, CGroupDirectory};
 
 #[derive(Debug)]
 pub enum Error {
+    ConfigureCgroupCpus(cgroup_directory::Error),
+    ConfigureCgroupDevices(cgroup_directory::Error),
+    ConfigureCgroupMems(cgroup_directory::Error),
     ConfigureFailed,
     InvalidDevicePermissions,
     InvalidDeviceType,
     CGroupDirError(cgroup_directory::Error),
-}
-
-impl From<cgroup_directory::Error> for Error {
-    fn from(err: cgroup_directory::Error) -> Error {
-        Error::CGroupDirError(err)
-    }
 }
 
 pub trait CGroupConfiguration {
@@ -137,13 +134,15 @@ impl CGroupConfiguration for CpuSetCGroupConfiguration {
                              .iter()
                              .map(|c| c.to_string())
                              .collect::<Vec<String>>()
-                             .join(","))?;
+                             .join(","))
+            .map_err(Error::ConfigureCgroupCpus)?;
         dir.write_file("mems",
                         &self.mems
                              .iter()
                              .map(|c| c.to_string())
                              .collect::<Vec<String>>()
-                             .join(","))?;
+                             .join(","))
+            .map_err(Error::ConfigureCgroupMems)?;
         Ok(())
     }
 
@@ -268,7 +267,8 @@ impl CGroupConfiguration for DevicesCGroupConfiguration {
 
         for device in &self.devices {
             let filename = DevicesCGroupConfiguration::filename_for_access(device.allow);
-            dir.write_file(filename, &device.access_string())?;
+            dir.write_file(filename, &device.access_string())
+                .map_err(Error::ConfigureCgroupDevices)?;
         }
 
         Ok(())

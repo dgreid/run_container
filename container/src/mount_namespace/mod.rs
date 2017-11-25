@@ -13,27 +13,16 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Error {
-    CreateTargetFile(io::Error),
-    Io(io::Error),
-    Nix(nix::Error),
+    CreateTarget(io::Error),
+    EnterMountNamespace(nix::Error),
+    EnterPivotRoot(nix::Error),
     InvalidRootPath,
     InvalidTargetPath,
     MountCommand(nix::Error, PathBuf),
     PostSetupCallback,
+    RemountPrivate(nix::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::Io(err)
-    }
-}
-
-impl From<nix::Error> for Error {
-    fn from(err: nix::Error) -> Error {
-        Error::Nix(err)
-    }
-}
 
 struct ContainerMount {
     source: Option<PathBuf>,
@@ -88,8 +77,10 @@ impl MountNamespace {
             return Err(Error::InvalidRootPath);
         }
 
-        nix::sched::unshare(nix::sched::CLONE_NEWNS)?;
-        self.remount_private()?;
+        nix::sched::unshare(nix::sched::CLONE_NEWNS)
+            .map_err(Error::EnterMountNamespace)?;
+        self.remount_private()
+            .map_err(Error::RemountPrivate)?;
 
         if post_setup(&self.root).is_err() {
             return Err(Error::PostSetupCallback);
@@ -107,7 +98,8 @@ impl MountNamespace {
                 .map_err(|e| Error::MountCommand(e, target))?;
         }
 
-        self.enter_pivot_root()?;
+        self.enter_pivot_root()
+            .map_err(Error::EnterPivotRoot)?;
 
         Ok(())
     }
@@ -121,11 +113,11 @@ impl MountNamespace {
                 OpenOptions::new().create(true)
                     .write(true)
                     .open(target.as_path())
-                    .map_err(Error::CreateTargetFile)?;
+                    .map_err(Error::CreateTarget)?;
                 return Ok(());
             }
         }
-        fs::create_dir(target.as_path())?;
+        fs::create_dir(target.as_path()).map_err(Error::CreateTarget)?;
         Ok(())
     }
 

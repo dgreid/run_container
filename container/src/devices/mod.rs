@@ -15,29 +15,13 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub enum Error {
-    DeviceDirCreation,
-    DeviceCreation(device::Error),
-    DirectoryCreation(io::Error),
     BindPathInvalid,
     BindMount(nix::Error),
-}
-
-impl From<device::Error> for Error {
-    fn from(err: device::Error) -> Error {
-        Error::DeviceCreation(err)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::DirectoryCreation(err)
-    }
-}
-
-impl From<nix::Error> for Error {
-    fn from(err: nix::Error) -> Error {
-        Error::BindMount(err)
-    }
+    BindMountingDevice(device::Error),
+    DeviceCreation(device::Error),
+    DeviceDirCreation,
+    CreateTmpFs(io::Error),
+    MountTmpFs(nix::Error),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -71,7 +55,8 @@ impl DeviceConfig {
                       gid: Option<u64>)
                       -> Result<(), Error> {
         self.devices
-            .push(Device::new(dev_type, path, major, minor, file_mode, uid, gid)?);
+            .push(Device::new(dev_type, path, major, minor, file_mode, uid, gid)
+                    .map_err(Error::DeviceCreation)?);
         Ok(())
     }
 
@@ -83,16 +68,17 @@ impl DeviceConfig {
             return Ok(());
         }
 
-        let dev_dir = TempDir::new("container_dev")?;
+        let dev_dir = TempDir::new("container_dev").map_err(Error::CreateTmpFs)?;
 
         nix::mount::mount(None::<&Path>,
                           dev_dir.path(),
                           Some(&PathBuf::from("tmpfs")),
                           MS_NOSUID | MS_REC,
-                          None::<&Path>)?;
+                          None::<&Path>)
+            .map_err(Error::MountTmpFs)?;
 
         for d in &self.devices {
-            d.mknod(dev_dir.path())?;
+            d.mknod(dev_dir.path()).map_err(Error::DeviceCreation)?;
         }
 
         self.dev_dir = Some(dev_dir); // Hold ref to tempdir.
@@ -125,7 +111,8 @@ impl DeviceConfig {
                               dev_path,
                               None::<&Path>,
                               MS_BIND | MS_REC,
-                              None::<&Path>)?;
+                              None::<&Path>)
+                .map_err(Error::BindMount)?;
             Ok(())
         } else {
             Err(Error::DeviceDirCreation)
@@ -134,7 +121,8 @@ impl DeviceConfig {
 
     fn setup_in_namespace_bind(&self, dev_path: &Path, bind_dir: &Path) -> Result<(), Error> {
         for d in &self.devices {
-            d.bind_mount(dev_path, bind_dir)?;
+            d.bind_mount(dev_path, bind_dir)
+                .map_err(Error::BindMountingDevice)?;
         }
 
         Ok(())

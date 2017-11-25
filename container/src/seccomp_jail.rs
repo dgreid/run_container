@@ -30,12 +30,6 @@ pub enum Error {
     InvalidSyscall,
 }
 
-impl From<syscall_defines::Error> for Error {
-    fn from(_: syscall_defines::Error) -> Error {
-        Error::InvalidSyscall
-    }
-}
-
 enum Action {
     Allow,
     Kill,
@@ -120,7 +114,8 @@ impl SeccompJail {
                 return Err(Error::SeccompInitFail);
             }
             for (key, ops) in &config.rules {
-                let syscall_number = syscall_defines::from_name(&key.name)?;
+                let syscall_number = syscall_defines::from_name(&key.name)
+                    .map_err(|_| Error::InvalidSyscall)?;
                 let action = action_number(&action_from_string(&key.action)?);
                 let ret = seccomp_sys::seccomp_rule_add_array(context,
                                                               action,

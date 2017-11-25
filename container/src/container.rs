@@ -57,8 +57,11 @@ pub struct Container {
 pub enum Error {
     AltSyscallError,
     BoundingCaps(caps::Error),
+    CGroupAddPid(cgroup::Error),
+    CGroupConfigure(cgroup::Error),
     CGroupCreateError,
     CGroupFailure(cgroup::Error),
+    CGroupNamespaceEnter(cgroup_namespace::Error),
     CloneSyscall(i32),
     DroppingCaps(caps::Error),
     GettingThreadID(i32),
@@ -68,7 +71,7 @@ pub enum Error {
     MountSetup(mount_namespace::Error),
     NetworkConfigureChild(net_namespace::Error),
     NetworkNamespaceConfigure(net_namespace::Error),
-    Nix(nix::Error),
+    SetHostName(nix::Error),
     NoNewPrivsFailed(i32),
     OpenSelinuxAttr(io::Error),
     PreForkDeviceSetup(devices::Error),
@@ -86,45 +89,6 @@ pub enum Error {
     WriteSelinuxLabel(io::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
-
-impl From<nix::Error> for Error {
-    fn from(err: nix::Error) -> Error {
-        Error::Nix(err)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::Io(err)
-    }
-}
-
-impl From<cgroup::Error> for Error {
-    fn from(err: cgroup::Error) -> Error {
-        Error::CGroupFailure(err)
-    }
-}
-
-impl From<cgroup_namespace::Error> for Error {
-    fn from(err: cgroup_namespace::Error) -> Error {
-        match err {
-            cgroup_namespace::Error::Io(e) => Error::Io(e),
-            cgroup_namespace::Error::Nix(e) => Error::Nix(e),
-        }
-    }
-}
-
-impl From<seccomp_jail::Error> for Error {
-    fn from(err: seccomp_jail::Error) -> Error {
-        Error::SeccompError(err)
-    }
-}
-
-impl From<sysctls::Error> for Error {
-    fn from(err: sysctls::Error) -> Error {
-        Error::SysctlError(err)
-    }
-}
 
 fn get_tid() -> Result<libc::pid_t> {
     unsafe {
@@ -201,7 +165,7 @@ impl Container {
 
     fn do_seccomp(&self) -> Result<()> {
         if let Some(ref sj) = self.seccomp_jail {
-            sj.enter()?;
+            sj.enter().map_err(Error::SeccompError)?;
         }
         Ok(())
     }
@@ -283,7 +247,7 @@ impl Container {
             net_ns.configure_in_child().map_err(Error::NetworkConfigureChild)?;
         }
         if let Some(ref cg_ns) = self.cgroup_namespace {
-            cg_ns.enter()?;
+            cg_ns.enter().map_err(Error::CGroupNamespaceEnter)?;
         }
         if let Some(ref mnt_ns) = self.mount_namespace {
             mnt_ns.enter(|rootpath| {
@@ -296,9 +260,9 @@ impl Container {
             }).map_err(Error::MountSetup)?;
         }
         if let Some(ref sysctls) = self.sysctls {
-            sysctls.configure()?;
+            sysctls.configure().map_err(Error::SysctlError)?;
         }
-        nix::unistd::sethostname(&self.name)?;
+        nix::unistd::sethostname(&self.name).map_err(Error::SetHostName)?;
         self.enter_jail_in_ns()?;
         Ok(())
     }
@@ -344,8 +308,8 @@ impl Container {
             .map_err(Error::NetworkNamespaceConfigure)?;
 
         for cgroup in &self.cgroups {
-            cgroup.configure()?;
-            cgroup.add_pid(self.pid)?;
+            cgroup.configure().map_err(Error::CGroupConfigure)?;
+            cgroup.add_pid(self.pid).map_err(Error::CGroupAddPid)?;
         }
 
         self.rlimits

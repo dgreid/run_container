@@ -11,34 +11,18 @@ use std::path::{StripPrefixError, Path, PathBuf};
 
 #[derive(Debug)]
 pub enum Error {
+    BindMountingDevice(nix::Error),
     Chmod(i32),
     Chown(i32),
+    CreateDeviceDirectory(io::Error),
+    CreateTargetBindPath(io::Error),
     InvalidPath(NulError),
+    MknodFailed(nix::Error),
     NoMajor,
     NoMinor,
-    MknodFailed(nix::Error),
-    DevDirectory(io::Error),
     PathNullError(NulError),
     DevicePath(StripPrefixError),
     InvalidDevicePath,
-}
-
-impl From<nix::Error> for Error {
-    fn from(err: nix::Error) -> Error {
-        Error::MknodFailed(err)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::DevDirectory(err)
-    }
-}
-
-impl From<StripPrefixError> for Error {
-    fn from(err: StripPrefixError) -> Error {
-        Error::DevicePath(err)
-    }
 }
 
 pub enum DeviceType {
@@ -65,7 +49,8 @@ impl Device {
                uid: Option<u64>,
                gid: Option<u64>)
                -> Result<Device, Error> {
-        let relative_path = PathBuf::from(path.strip_prefix("/dev/")?);
+        let relative_path = PathBuf::from(path.strip_prefix("/dev/")
+            .map_err(Error::DevicePath)?);
 
         Ok(Device {
                dev_type: dev_type,
@@ -89,14 +74,15 @@ impl Device {
         }
 
         let parent_dir = dev_path.parent().ok_or(Error::InvalidDevicePath)?;
-        fs::create_dir_all(parent_dir)?;
+        fs::create_dir_all(parent_dir).map_err(Error::CreateDeviceDirectory)?;
 
         nix::sys::stat::mknod(&dev_path,
                               Device::flag_from_type(&self.dev_type),
                               Mode::from_bits(self.file_mode.unwrap_or(0))
                                   .unwrap_or_else(Mode::empty),
                               nix::sys::stat::makedev(self.major.unwrap() as u64,
-                                                      self.minor.unwrap() as u64))?;
+                                                      self.minor.unwrap() as u64))
+            .map_err(Error::MknodFailed)?;
         let cpath = CString::new(dev_path.as_os_str().as_bytes())
             .map_err(Error::InvalidPath)?;
         unsafe {
@@ -123,13 +109,15 @@ impl Device {
 
     pub fn bind_mount(&self, dev_dir: &Path, bind_dir: &Path) -> Result<(), Error> {
         let node_path = dev_dir.join(&self.path);
-        fs::create_dir_all(node_path.parent().unwrap())?;
+        fs::create_dir_all(node_path.parent().unwrap())
+            .map_err(Error::CreateTargetBindPath)?;
         let orig_path = bind_dir.join(&self.path);
         nix::mount::mount(Some(&orig_path),
                           &node_path,
                           None::<&Path>,
                           MS_BIND | MS_REC,
-                          None::<&Path>)?;
+                          None::<&Path>)
+            .map_err(Error::BindMountingDevice)?;
         Ok(())
     }
 }

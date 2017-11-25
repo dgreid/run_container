@@ -13,22 +13,12 @@ use std::path::Path;
 
 #[derive(Debug)]
 pub enum Error {
+    CreatingCGroupDirectory(cgroup_directory::Error),
+    ChownCGroup(cgroup_directory::Error),
     CGroupDirectoryFailed(cgroup_directory::Error),
     CGroupConfigurationFailed(cgroup_configuration::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
-
-impl From<cgroup_configuration::Error> for Error {
-    fn from(err: cgroup_configuration::Error) -> Error {
-        Error::CGroupConfigurationFailed(err)
-    }
-}
-
-impl From<cgroup_directory::Error> for Error {
-    fn from(err: cgroup_directory::Error) -> Error {
-        Error::CGroupDirectoryFailed(err)
-    }
-}
 
 pub struct CGroup {
     dir: CGroupDirectory,
@@ -42,8 +32,10 @@ impl CGroup {
                configuration: Box<CGroupConfiguration>,
                uid: Option<uid_t>)
                -> Result<CGroup> {
-        let dir = CGroupDirectory::new(base_path, parent, name, configuration.cgroup_type())?;
-        dir.chown(uid, uid)?; // TODO allow different gid
+        let dir = CGroupDirectory::new(base_path, parent, name, configuration.cgroup_type())
+            .map_err(Error::CreatingCGroupDirectory)?;
+        // TODO allow different gid
+        dir.chown(uid, uid).map_err(Error::ChownCGroup)?;
         Ok(CGroup {
                dir: dir,
                configuration: configuration,
@@ -51,12 +43,14 @@ impl CGroup {
     }
 
     pub fn configure(&self) -> Result<()> {
-        self.configuration.configure(&self.dir)?;
+        self.configuration.configure(&self.dir)
+            .map_err(Error::CGroupConfigurationFailed)?;
         Ok(())
     }
 
     pub fn add_pid(&self, pid: pid_t) -> Result<()> {
-        self.dir.add_pid(pid)?;
+        self.dir.add_pid(pid)
+            .map_err(Error::CGroupDirectoryFailed)?;
         Ok(())
     }
 }
