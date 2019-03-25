@@ -1,6 +1,5 @@
 extern crate caps;
 extern crate libc;
-extern crate nix;
 
 use self::caps::CapConfig;
 use cgroup::{self, CGroup};
@@ -13,14 +12,15 @@ use net_namespace::NetNamespace;
 use rlimits::{self, RLimits};
 use seccomp_jail;
 use seccomp_jail::SeccompJail;
-use sysctls;
-use sysctls::Sysctls;
 use sync_pipe::{self, SyncPipe};
 use syscall_defines::linux::LinuxSyscall::*;
+use sysctls;
+use sysctls::Sysctls;
 use user_namespace::{self, UserNamespace};
 
 use self::libc::pid_t;
-use self::nix::sched::*;
+use libc::sethostname;
+use libc::{CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS};
 use std;
 use std::ffi::CString;
 use std::fs::File;
@@ -71,7 +71,7 @@ pub enum Error {
     MountSetup(mount_namespace::Error),
     NetworkConfigureChild(net_namespace::Error),
     NetworkNamespaceConfigure(net_namespace::Error),
-    SetHostName(nix::Error),
+    SetHostName(libc::c_int),
     NoNewPrivsFailed(i32),
     OpenSelinuxAttr(io::Error),
     PreForkDeviceSetup(devices::Error),
@@ -103,36 +103,35 @@ fn get_tid() -> Result<libc::pid_t> {
 fn do_selinux(label: &CString) -> Result<()> {
     let tid = get_tid()?;
     let exec_path = PathBuf::from(format!("/proc/self/task/{}/attr/exec", tid));
-    let mut f = File::create(exec_path)
-        .map_err(Error::OpenSelinuxAttr)?;
+    let mut f = File::create(exec_path).map_err(Error::OpenSelinuxAttr)?;
     f.write_all(label.as_bytes())
         .map_err(Error::WriteSelinuxLabel)?;
     Ok(())
 }
 
-
 impl Container {
-    pub fn new(name: &str,
-               argv: Vec<CString>,
-               caps: Option<CapConfig>,
-               cgroups: Vec<CGroup>,
-               cgroup_namespace: Option<CGroupNamespace>,
-               device_config: Option<DeviceConfig>,
-               mount_namespace: Option<MountNamespace>,
-               net_namespace: Option<Box<NetNamespace>>,
-               user_namespace: Option<UserNamespace>,
-               additional_groups: Vec<u32>,
-               no_new_privileges: bool,
-               poststart_hooks: Vec<Hook>,
-               poststop_hooks: Vec<Hook>,
-               prestart_hooks: Vec<Hook>,
-               hook_state: Option<Box<HookState>>,
-               rlimits: Option<RLimits>,
-               seccomp_jail: Option<SeccompJail>,
-               selinux_label: Option<CString>,
-               sysctls: Option<Sysctls>,
-               privileged: bool)
-               -> Self {
+    pub fn new(
+        name: &str,
+        argv: Vec<CString>,
+        caps: Option<CapConfig>,
+        cgroups: Vec<CGroup>,
+        cgroup_namespace: Option<CGroupNamespace>,
+        device_config: Option<DeviceConfig>,
+        mount_namespace: Option<MountNamespace>,
+        net_namespace: Option<Box<NetNamespace>>,
+        user_namespace: Option<UserNamespace>,
+        additional_groups: Vec<u32>,
+        no_new_privileges: bool,
+        poststart_hooks: Vec<Hook>,
+        poststop_hooks: Vec<Hook>,
+        prestart_hooks: Vec<Hook>,
+        hook_state: Option<Box<HookState>>,
+        rlimits: Option<RLimits>,
+        seccomp_jail: Option<SeccompJail>,
+        selinux_label: Option<CString>,
+        sysctls: Option<Sysctls>,
+        privileged: bool,
+    ) -> Self {
         Container {
             name: name.to_string(),
             alt_syscall_table: None,
@@ -174,9 +173,12 @@ impl Container {
         if let Some(ref ast) = self.alt_syscall_table {
             unsafe {
                 // Calling prctl is safe, it doesn't touch memory.
-                if libc::prctl(0x43724f53, // PR_ALT_SYSCALL
-                               1,
-                               ast.as_ptr()) != 0 {
+                if libc::prctl(
+                    0x43724f53, // PR_ALT_SYSCALL
+                    1,
+                    ast.as_ptr(),
+                ) != 0
+                {
                     return Err(Error::AltSyscallError);
                 }
             }
@@ -186,7 +188,9 @@ impl Container {
 
     fn enter_jail_in_ns(&self) -> Result<()> {
         // Start by setting selinux label - When should selinux be enabled?
-        self.selinux_label.as_ref().map_or(Ok(()), |l| do_selinux(l))?;
+        self.selinux_label
+            .as_ref()
+            .map_or(Ok(()), |l| do_selinux(l))?;
 
         if self.no_new_privileges {
             unsafe {
@@ -203,10 +207,8 @@ impl Container {
         }
 
         if let Some(ref caps) = self.caps {
-            caps.drop_bounding_caps()
-                .map_err(Error::BoundingCaps)?;
-            caps.drop_caps()
-                .map_err(Error::DroppingCaps)?;
+            caps.drop_bounding_caps().map_err(Error::BoundingCaps)?;
+            caps.drop_caps().map_err(Error::DroppingCaps)?;
         }
 
         self.enter_alt_syscall_table()?;
@@ -224,8 +226,10 @@ impl Container {
         }
 
         unsafe {
-            match libc::setgroups(self.additional_groups.len(),
-                                  self.additional_groups.as_ptr()) {
+            match libc::setgroups(
+                self.additional_groups.len(),
+                self.additional_groups.as_ptr(),
+            ) {
                 0 => Ok(()),
                 _ => Err(Error::SetGroupsError),
             }
@@ -244,30 +248,40 @@ impl Container {
         }
         self.set_additional_gids()?;
         if let Some(ref net_ns) = self.net_namespace {
-            net_ns.configure_in_child().map_err(Error::NetworkConfigureChild)?;
+            net_ns
+                .configure_in_child()
+                .map_err(Error::NetworkConfigureChild)?;
         }
         if let Some(ref cg_ns) = self.cgroup_namespace {
             cg_ns.enter().map_err(Error::CGroupNamespaceEnter)?;
         }
         if let Some(ref mnt_ns) = self.mount_namespace {
-            mnt_ns.enter(|rootpath| {
-                if let Some(ref device_config) = self.device_config {
-                    device_config.setup_in_namespace(&rootpath.join("dev"),
-                                                     Some(&PathBuf::from("/dev")))
-                        .map_err(|_| ())?;
-                }
-                Ok(())
-            }).map_err(Error::MountSetup)?;
+            mnt_ns
+                .enter(|rootpath| {
+                    if let Some(ref device_config) = self.device_config {
+                        device_config
+                            .setup_in_namespace(&rootpath.join("dev"), Some(&PathBuf::from("/dev")))
+                            .map_err(|_| ())?;
+                    }
+                    Ok(())
+                })
+                .map_err(Error::MountSetup)?;
         }
         if let Some(ref sysctls) = self.sysctls {
             sysctls.configure().map_err(Error::SysctlError)?;
         }
-        nix::unistd::sethostname(&self.name).map_err(Error::SetHostName)?;
+
+        unsafe {
+            match sethostname(self.name.as_ptr() as *const _, self.name.len()) {
+                e if e <= 0 => return Err(Error::SetHostName(e)),
+                _ => (),
+            }
+        }
         self.enter_jail_in_ns()?;
         Ok(())
     }
 
-    fn clone_flags(&self) -> nix::sched::CloneFlags {
+    fn clone_flags(&self) -> libc::c_int {
         let base_flags = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS;
         if self.net_namespace.is_some() {
             base_flags | CLONE_NEWNET
@@ -278,16 +292,17 @@ impl Container {
 
     fn do_clone(&self) -> Result<pid_t> {
         unsafe {
-            if libc::setpgid(0,0) < 0 {
+            if libc::setpgid(0, 0) < 0 {
                 return Err(Error::SettingPGid(*libc::__errno_location()));
             }
         }
 
         unsafe {
-            let pid = nix::sys::syscall::syscall(SYS_clone as i64,
-                                                 self.clone_flags().bits() |
-                                                 nix::sys::signal::SIGCHLD as i32,
-                                                 0);
+            let pid = libc::syscall(
+                libc::SYS_clone as i64,
+                self.clone_flags() | libc::SIGCHLD as i32,
+                0,
+            );
             if pid < 0 {
                 Err(Error::CloneSyscall(*libc::__errno_location()))
             } else {
@@ -296,8 +311,11 @@ impl Container {
         }
     }
 
-    fn parent_setup(&mut self, ns_ready_signal: SyncPipe, ns_setup_complete: SyncPipe)
-            -> Result<()> {
+    fn parent_setup(
+        &mut self,
+        ns_ready_signal: SyncPipe,
+        ns_setup_complete: SyncPipe,
+    ) -> Result<()> {
         self.user_namespace
             .as_ref()
             .map_or(Ok(()), |u| u.configure(self.pid, !self.privileged))
@@ -320,9 +338,12 @@ impl Container {
         ns_ready_signal.signal().map_err(Error::SignalChild)?;
         ns_setup_complete.wait().map_err(Error::SignalChild)?;
         for h in self.prestart_hooks.iter() {
-            h.run(self.hook_template.as_ref().map(|t|
-                        t.to_string(Some(self.pid as u64), "created")))
-                .map_err(Error::HookFailure)?;
+            h.run(
+                self.hook_template
+                    .as_ref()
+                    .map(|t| t.to_string(Some(self.pid as u64), "created")),
+            )
+            .map_err(Error::HookFailure)?;
         }
         ns_ready_signal.signal().map_err(Error::SignalChild)?;
         Ok(())
@@ -336,7 +357,12 @@ impl Container {
         drop(ns_setup_complete); // Make sure the FD is closed.
         ns_ready_signal.wait().unwrap(); // Wait for post NS setup by the parent.
         drop(ns_ready_signal); // Done with the pipe.
-        nix::unistd::execv(&self.argv[0], &self.argv).unwrap();
+        unsafe {
+            libc::execv(
+                self.argv[0].as_ptr() as *const _,
+                self.argv.as_ptr() as *const _,
+            );
+        }
         panic!("Failed to execute program");
     }
 
@@ -371,9 +397,12 @@ impl Container {
                 self.pid = pid;
                 self.parent_setup(ns_ready_signal, ns_setup_complete)?;
                 for h in self.poststart_hooks.iter() {
-                    h.run(self.hook_template.as_ref().map(|t|
-                                t.to_string(Some(self.pid as u64), "started")))
-                        .map_err(Error::HookFailure)?;
+                    h.run(
+                        self.hook_template
+                            .as_ref()
+                            .map(|t| t.to_string(Some(self.pid as u64), "started")),
+                    )
+                    .map_err(Error::HookFailure)?;
                 }
             }
         }
@@ -396,9 +425,12 @@ impl Container {
             }
         }
         for h in self.poststop_hooks.iter() {
-            h.run(self.hook_template.as_ref().map(|t|
-                    t.to_string(Some(self.pid as u64), "stopped")))
-                .map_err(Error::HookFailure)?;
+            h.run(
+                self.hook_template
+                    .as_ref()
+                    .map(|t| t.to_string(Some(self.pid as u64), "stopped")),
+            )
+            .map_err(Error::HookFailure)?;
         }
         Ok(())
     }
@@ -410,18 +442,18 @@ mod test {
     extern crate nix;
     extern crate tempdir;
 
+    use self::tempdir::TempDir;
     use super::Container;
     use cgroup_namespace::*;
     use mount_namespace::*;
     use net_namespace::EmptyNetNamespace;
     use seccomp_jail::SeccompConfig;
     use seccomp_jail::SeccompJail;
+    use std::ffi::CString;
+    use std::fs;
     use std::path::Path;
     use std::path::PathBuf;
-    use std::ffi::CString;
     use user_namespace::*;
-    use self::tempdir::TempDir;
-    use std::fs;
 
     fn create_cgroup_type(cg_base: &Path, t: &str) {
         let mut cg_path = PathBuf::from(&cg_base);
@@ -446,35 +478,40 @@ mod test {
     #[ignore] // Can't run without root.
     fn start_test() {
         let temp_cgdir = TempDir::new("fake_cg").unwrap();
-        let argv = vec![CString::new("/bin/ls").unwrap(), CString::new("-l").unwrap()];
+        let argv = vec![
+            CString::new("/bin/ls").unwrap(),
+            CString::new("-l").unwrap(),
+        ];
         let cgroup_namespace = setup_cgroups(&temp_cgdir);
         let mount_namespace = MountNamespace::new(PathBuf::from("/tmp/foo"));
         let mut user_namespace = UserNamespace::new();
         let seccomp_config = SeccompConfig::new("SCMP_ACT_ALLOW").unwrap();
         let seccomp_jail = SeccompJail::new(&seccomp_config).unwrap();
-        user_namespace.add_uid_mapping(0, unsafe {libc::getuid()} as u64, 1);
-        user_namespace.add_gid_mapping(0, unsafe {libc::getgid()} as u64, 1);
+        user_namespace.add_uid_mapping(0, unsafe { libc::getuid() } as u64, 1);
+        user_namespace.add_gid_mapping(0, unsafe { libc::getgid() } as u64, 1);
         // TODO(dgreid) - add test with each network namespace
-        let mut c = Container::new("asdf",
-                                   argv,
-                                   None,
-                                   Vec::new(),
-                                   Some(cgroup_namespace),
-                                   None,
-                                   Some(mount_namespace),
-                                   Some(Box::new(EmptyNetNamespace::new())),
-                                   Some(user_namespace),
-                                   Vec::new(),
-                                   false,
-                                   Vec::new(),
-                                   Vec::new(),
-                                   Vec::new(),
-                                   None,
-                                   None,
-                                   Some(seccomp_jail),
-                                   None,
-                                   None,
-                                   true);
+        let mut c = Container::new(
+            "asdf",
+            argv,
+            None,
+            Vec::new(),
+            Some(cgroup_namespace),
+            None,
+            Some(mount_namespace),
+            Some(Box::new(EmptyNetNamespace::new())),
+            Some(user_namespace),
+            Vec::new(),
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Some(seccomp_jail),
+            None,
+            None,
+            true,
+        );
         assert_eq!("asdf", c.name());
         assert!(c.start().is_ok());
         assert!(c.wait().is_ok());

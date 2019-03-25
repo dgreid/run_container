@@ -1,10 +1,8 @@
-extern crate nix;
-
-use self::nix::sched::*;
+use libc::{syscall, CLONE_NEWCGROUP};
 
 #[derive(Debug)]
 pub enum Error {
-    EnterCGroupNamespace(nix::Error),
+    EnterCGroupNamespace(libc::c_long),
 }
 
 pub struct CGroupNamespace {}
@@ -16,8 +14,11 @@ impl CGroupNamespace {
 
     pub fn enter(&self) -> Result<(), Error> {
         // Now that the process is in each cgroup, enter a new cgroup namespace.
-        nix::sched::unshare(CLONE_NEWCGROUP)
-            .map_err(Error::EnterCGroupNamespace)?;
-        Ok(())
+        unsafe {
+            match syscall(CLONE_NEWCGROUP as i64) {
+                e if e >= 0 => Err(Error::EnterCGroupNamespace(e)),
+                _ => Ok(()),
+            }
+        }
     }
 }

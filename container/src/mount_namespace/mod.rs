@@ -11,6 +11,8 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
+use libc::{MNT_DETACH, MS_BIND, MS_PRIVATE, MS_REC};
+
 #[derive(Debug)]
 pub enum Error {
     CreateTarget(io::Error),
@@ -28,7 +30,7 @@ struct ContainerMount {
     source: Option<PathBuf>,
     target: PathBuf,
     fstype: Option<String>,
-    flags: MsFlags,
+    flags: libc::c_ulong,
     options: Vec<String>,
 }
 
@@ -46,23 +48,24 @@ impl MountNamespace {
     }
 
     // target path must be relative, no leading '/'.
-    pub fn add_mount(&mut self,
-                     source: Option<PathBuf>,
-                     target: PathBuf,
-                     fstype: Option<String>,
-                     flags: MsFlags,
-                     options: Vec<String>)
-                     -> Result<()> {
+    pub fn add_mount(
+        &mut self,
+        source: Option<PathBuf>,
+        target: PathBuf,
+        fstype: Option<String>,
+        flags: libc::c_ulong, // TODO store in a better type.
+        options: Vec<String>,
+    ) -> Result<()> {
         if target.is_absolute() {
             return Err(Error::InvalidTargetPath);
         }
 
         let new_mount = ContainerMount {
-            source: source,
-            target: target,
-            fstype: fstype,
-            flags: flags,
-            options: options,
+            source,
+            target,
+            fstype,
+            flags,
+            options,
         };
         self.mounts.push(new_mount);
         Ok(())
@@ -71,16 +74,17 @@ impl MountNamespace {
     // post_setup is called after mounts are made but before pivot root
     //  The path to the root fs is passed in to post_setup.
     pub fn enter<F>(&self, post_setup: F) -> Result<()>
-        where F: Fn(&Path) -> std::result::Result<(), ()>
+    where
+        F: Fn(&Path) -> std::result::Result<(), ()>,
     {
         if !self.root.exists() {
             return Err(Error::InvalidRootPath);
         }
 
-        nix::sched::unshare(nix::sched::CLONE_NEWNS)
-            .map_err(Error::EnterMountNamespace)?;
-        self.remount_private()
-            .map_err(Error::RemountPrivate)?;
+        unsafe {
+            libc::unshare(libc::CLONE_NEWNS);
+        } //TODO - check error
+        self.remount_private().map_err(Error::RemountPrivate)?;
 
         if post_setup(&self.root).is_err() {
             return Err(Error::PostSetupCallback);
@@ -90,16 +94,24 @@ impl MountNamespace {
             let mut target = self.root.clone();
             target.push(m.target.as_path());
             self.prepare_mount_target(&m.source, &target)?;
-            nix::mount::mount(m.source.as_ref(),
-                              target.as_path(),
-                              m.fstype.as_ref().map(|t| &**t),
-                              m.flags,
-                              Some(&m.options.join(",")[..]))
-                .map_err(|e| Error::MountCommand(e, target))?;
+            unsafe {
+                libc::mount(
+                    match m.source.as_ref() {
+                        Some(s) => s.to_string_lossy().as_ptr() as *const _,
+                        None => std::ptr::null_mut() as *const _,
+                    },
+                    target.as_path().to_string_lossy().as_ptr() as *const _,
+                    match m.fstype.as_ref() {
+                        Some(s) => s.as_ptr() as *const _,
+                        None => std::ptr::null_mut() as *const _,
+                    },
+                    m.flags as u64,
+                    m.options.join(",").as_ptr() as *const _,
+                ); // TODO handle mount errors
+            }
         }
 
-        self.enter_pivot_root()
-            .map_err(Error::EnterPivotRoot)?;
+        self.enter_pivot_root().map_err(Error::EnterPivotRoot)?;
 
         Ok(())
     }
@@ -110,7 +122,8 @@ impl MountNamespace {
         }
         if let Some(ref s) = *source {
             if s.exists() && !s.is_dir() {
-                OpenOptions::new().create(true)
+                OpenOptions::new()
+                    .create(true)
                     .write(true)
                     .open(target.as_path())
                     .map_err(Error::CreateTarget)?;
@@ -124,28 +137,35 @@ impl MountNamespace {
     // Enter the pivot root root fs for the jailed app
     fn enter_pivot_root(&self) -> nix::Result<()> {
         // Keep both old and new root open to fchdir into later.
-        let old_root = OpenDir::new(Path::new("/"))?;
-        let new_root = OpenDir::new(self.root.as_path())?;
+        let old_root = OpenDir::new(Path::new("/")).unwrap(); // TODO handle error
+        let new_root = OpenDir::new(self.root.as_path()).unwrap(); // TODO handle error
 
         // To ensure j->chrootdir is the root of a filesystem,
         // do a self bind mount.
-        nix::mount::mount(Some(self.root.as_path()),
-                          self.root.as_path(),
-                          None::<&Path>,
-                          MS_BIND | MS_REC,
-                          None::<&Path>)?;
+        unsafe {
+            libc::mount(
+                self.root.as_path().to_string_lossy().as_ptr() as *const _,
+                self.root.as_path().to_string_lossy().as_ptr() as *const _,
+                std::ptr::null_mut(),
+                MS_BIND | MS_REC,
+                std::ptr::null_mut(),
+            ); // TODO handle error
+        }
         nix::unistd::chdir(self.root.as_path())?;
         nix::unistd::pivot_root(".", ".")?;
 
         // unmount old root
         // Now the old root is mounted on top of the new root. Use fchdir(2) to
         // change to the old root and unmount it.
-        old_root.chdir()?;
+        old_root.chdir(); // TODO handle error
+
         // The old root might be busy, so use lazy unmount.
-        nix::mount::umount2(".", MNT_DETACH)?;
+        unsafe {
+            libc::umount2(".".as_ptr() as *const _, MNT_DETACH); //TODO handle error
+        }
 
         // Change back to the new root.
-        new_root.chdir()?;
+        new_root.chdir(); //TODO handle error
 
         // Close open directories before setting cwd to /.
         drop(old_root);
@@ -161,11 +181,16 @@ impl MountNamespace {
     // Remount everything as private so new mounts and unmounts don't propagate
     // to the parent's namespace.
     fn remount_private(&self) -> nix::Result<()> {
-        nix::mount::mount(None::<&Path>,
-                          "/",
-                          None::<&Path>,
-                          MS_REC | MS_PRIVATE,
-                          None::<&Path>)
+        unsafe {
+            libc::mount(
+                std::ptr::null_mut(),
+                "/".as_ptr() as *const _,
+                std::ptr::null_mut(),
+                MS_REC | MS_PRIVATE,
+                std::ptr::null_mut(),
+            ); //TODO handle error
+        }
+        Ok(())
     }
 }
 
@@ -173,14 +198,14 @@ impl MountNamespace {
 mod test {
     extern crate nix;
     extern crate tempdir;
-    use self::nix::mount::*;
     use self::nix::sched::*;
     use self::nix::sys::wait;
     use self::nix::sys::wait::WaitStatus;
     use self::tempdir::TempDir;
+    use super::*;
+    use libc::{CLONE_NEWUSER, MS_BIND, MS_REC};
     use std::fs::OpenOptions;
     use std::path::PathBuf;
-    use super::MountNamespace;
 
     fn wait_child_exit(pid: nix::unistd::Pid) {
         loop {
@@ -210,9 +235,11 @@ mod test {
         let options = Vec::new();
 
         let mut m = MountNamespace::new(root_path);
-        assert_eq!(m.add_mount(Some(source), target, fstype, MS_BIND, options)
-                       .is_ok(),
-                   false);
+        assert_eq!(
+            m.add_mount(Some(source), target, fstype, MS_BIND, options)
+                .is_ok(),
+            false
+        );
     }
 
     #[test]
@@ -236,36 +263,40 @@ mod test {
             .open(file_source.as_path())
             .unwrap();
 
-        let pid = clone(Box::new(move || {
-            let target = PathBuf::from("one");
-            let fstype = None;
-            let options = Vec::new();
+        let pid = clone(
+            Box::new(move || {
+                let target = PathBuf::from("one");
+                let fstype = None;
+                let options = Vec::new();
 
-            let target2 = PathBuf::from("two");
-            let fstype2 = Some("tmpfs".to_string());
-            let options2 = Vec::new();
+                let target2 = PathBuf::from("two");
+                let fstype2 = Some("tmpfs".to_string());
+                let options2 = Vec::new();
 
-            let mut m = MountNamespace::new(root_path.to_path_buf());
-            m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options)
+                let mut m = MountNamespace::new(root_path.to_path_buf());
+                m.add_mount(Some(source.to_path_buf()), target, fstype, MS_BIND, options)
+                    .unwrap();
+                m.add_mount(None, target2, fstype2, MS_REC, options2)
+                    .unwrap();
+                m.add_mount(
+                    Some(file_source.clone()),
+                    PathBuf::from("/three"),
+                    None,
+                    MS_BIND | MS_REC,
+                    Vec::new(),
+                )
                 .unwrap();
-            m.add_mount(None, target2, fstype2, MS_REC, options2)
-                .unwrap();
-            m.add_mount(Some(file_source.clone()),
-                           PathBuf::from("/three"),
-                           None,
-                           MS_BIND | MS_REC,
-                           Vec::new())
-                .unwrap();
-            assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
-            assert!(PathBuf::from("/one").is_dir());
-            assert!(PathBuf::from("/two").is_dir());
-            assert!(PathBuf::from("/three").is_file());
-            0
-        }),
-                        &mut stack,
-                        CLONE_NEWUSER,
-                        None)
-                .unwrap();
+                assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
+                assert!(PathBuf::from("/one").is_dir());
+                assert!(PathBuf::from("/two").is_dir());
+                assert!(PathBuf::from("/three").is_file());
+                0
+            }),
+            &mut stack,
+            nix::sched::CloneFlags::from_bits(CLONE_NEWUSER).unwrap(),
+            None,
+        )
+        .unwrap();
         wait_child_exit(pid);
     }
 
@@ -276,24 +307,25 @@ mod test {
         let root_dir = TempDir::new("tmpfs_option_test").unwrap();
         let root_path = root_dir.path();
 
-        let pid = clone(Box::new(move || {
+        let pid = clone(
+            Box::new(move || {
+                let source = PathBuf::from("tmpfssrc");
+                let target = PathBuf::from("tmpfs");
+                let fstype = Some("tmpfs".to_string());
+                let options = vec!["size=16k".to_owned()];
 
-            let source = PathBuf::from("tmpfssrc");
-            let target = PathBuf::from("tmpfs");
-            let fstype = Some("tmpfs".to_string());
-            let options = vec!["size=16k".to_owned()];
-
-            let mut m = MountNamespace::new(root_path.to_path_buf());
-            m.add_mount(Some(source), target, fstype, MS_REC, options)
-                .unwrap();
-            assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
-            assert!(PathBuf::from("/tmpfs").exists());
-            0
-        }),
-                        &mut stack,
-                        CLONE_NEWUSER,
-                        None)
-                .unwrap();
+                let mut m = MountNamespace::new(root_path.to_path_buf());
+                m.add_mount(Some(source), target, fstype, MS_REC, options)
+                    .unwrap();
+                assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
+                assert!(PathBuf::from("/tmpfs").exists());
+                0
+            }),
+            &mut stack,
+            nix::sched::CloneFlags::from_bits(CLONE_NEWUSER).unwrap(),
+            None,
+        )
+        .unwrap();
         wait_child_exit(pid);
     }
 }

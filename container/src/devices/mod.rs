@@ -8,10 +8,10 @@ use devices::device::Device;
 pub use devices::device::DeviceType;
 
 use self::tempdir::TempDir;
-use self::nix::mount::{MS_BIND, MS_REC, MS_NOSUID};
+use libc::{MS_BIND, MS_NOSUID, MS_REC};
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum Error {
@@ -45,18 +45,20 @@ impl DeviceConfig {
         }
     }
 
-    pub fn add_device(&mut self,
-                      dev_type: DeviceType,
-                      path: &Path,
-                      major: Option<u32>,
-                      minor: Option<u32>,
-                      file_mode: Option<u32>,
-                      uid: Option<u64>,
-                      gid: Option<u64>)
-                      -> Result<(), Error> {
-        self.devices
-            .push(Device::new(dev_type, path, major, minor, file_mode, uid, gid)
-                    .map_err(Error::DeviceCreation)?);
+    pub fn add_device(
+        &mut self,
+        dev_type: DeviceType,
+        path: &Path,
+        major: Option<u32>,
+        minor: Option<u32>,
+        file_mode: Option<u32>,
+        uid: Option<u64>,
+        gid: Option<u64>,
+    ) -> Result<(), Error> {
+        self.devices.push(
+            Device::new(dev_type, path, major, minor, file_mode, uid, gid)
+                .map_err(Error::DeviceCreation)?,
+        );
         Ok(())
     }
 
@@ -70,12 +72,15 @@ impl DeviceConfig {
 
         let dev_dir = TempDir::new("container_dev").map_err(Error::CreateTmpFs)?;
 
-        nix::mount::mount(None::<&Path>,
-                          dev_dir.path(),
-                          Some(&PathBuf::from("tmpfs")),
-                          MS_NOSUID | MS_REC,
-                          None::<&Path>)
-            .map_err(Error::MountTmpFs)?;
+        unsafe {
+            libc::mount(
+                std::ptr::null_mut(),
+                dev_dir.path().to_string_lossy().as_ptr() as *const _,
+                "tmpfs".as_ptr() as *const _,
+                MS_NOSUID | MS_REC,
+                std::ptr::null_mut(),
+            ); // TODO - check error
+        }
 
         for d in &self.devices {
             d.mknod(dev_dir.path()).map_err(Error::DeviceCreation)?;
@@ -89,10 +94,11 @@ impl DeviceConfig {
     // Configure /dev in the new mount namespace.
     // For MkNode, bind mount the directory created in |pre_fork_setup|.
     // For BindMount, bind mount each node in to the dev directory.
-    pub fn setup_in_namespace(&self,
-                              dev_path: &Path,
-                              bind_dir: Option<&Path>)
-                              -> Result<(), Error> {
+    pub fn setup_in_namespace(
+        &self,
+        dev_path: &Path,
+        bind_dir: Option<&Path>,
+    ) -> Result<(), Error> {
         match self.method {
             NodeCreateMethod::MakeNode => self.setup_in_namespace_mknod(dev_path),
             NodeCreateMethod::BindMount => {
@@ -107,12 +113,15 @@ impl DeviceConfig {
 
     fn setup_in_namespace_mknod(&self, dev_path: &Path) -> Result<(), Error> {
         if let Some(ref dev_dir) = self.dev_dir {
-            nix::mount::mount(Some(dev_dir.path()),
-                              dev_path,
-                              None::<&Path>,
-                              MS_BIND | MS_REC,
-                              None::<&Path>)
-                .map_err(Error::BindMount)?;
+            unsafe {
+                libc::mount(
+                    dev_dir.path().to_string_lossy().as_ptr() as *const _,
+                    dev_path.to_string_lossy().as_ptr() as *const _,
+                    std::ptr::null_mut(),
+                    MS_BIND | MS_REC,
+                    std::ptr::null_mut(),
+                ); // TODO - handle error
+            }
             Ok(())
         } else {
             Err(Error::DeviceDirCreation)
@@ -135,29 +144,29 @@ mod test {
     extern crate libc;
     extern crate nix;
     extern crate tempdir;
-    use self::nix::sched::*;
     use self::libc::pid_t;
     use self::tempdir::TempDir;
+    use super::*;
+    use libc::{SYS_clone, CLONE_NEWIPC, CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS};
     use std::fs;
     use std::path::PathBuf;
-    use super::{DeviceType, NodeCreateMethod, DeviceConfig};
-    use syscall_defines::linux::LinuxSyscall::*;
 
-    fn do_clone() -> Result<pid_t, nix::Error> {
+    fn do_clone() -> Result<pid_t, libc::c_long> {
         unsafe {
-            if libc::setpgid(0,0) < 0 {
-                return Err(nix::Error::Sys(nix::Errno::UnknownErrno));
+            if libc::setpgid(0, 0) < 0 {
+                return Err(-1);
             }
         }
 
         unsafe {
             let clone_flags = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWIPC | CLONE_NEWUTS;
-            let pid = nix::sys::syscall::syscall(SYS_clone as i64,
-                                                 clone_flags.bits() |
-                                                 nix::sys::signal::SIGCHLD as i32,
-                                                 0);
+            let pid = libc::syscall(
+                SYS_clone as i64,
+                clone_flags | nix::sys::signal::SIGCHLD as i32,
+                0,
+            );
             if pid < 0 {
-                Err(nix::Error::Sys(nix::Errno::UnknownErrno))
+                Err(-1)
             } else {
                 Ok(pid as pid_t)
             }
@@ -167,14 +176,16 @@ mod test {
     #[test]
     fn bind_mount_one() {
         let mut dc = DeviceConfig::new();
-        dc.add_device(DeviceType::Character,
-                        &PathBuf::from("/dev/null"),
-                        Some(1),
-                        Some(13),
-                        Some(0o666),
-                        Some(0),
-                        Some(0))
-            .unwrap();
+        dc.add_device(
+            DeviceType::Character,
+            &PathBuf::from("/dev/null"),
+            Some(1),
+            Some(13),
+            Some(0o666),
+            Some(0),
+            Some(0),
+        )
+        .unwrap();
         dc.pre_fork_setup(NodeCreateMethod::BindMount).unwrap();
 
         let pid = do_clone().unwrap();
@@ -194,6 +205,5 @@ mod test {
                 }
             }
         }
-
     }
 }

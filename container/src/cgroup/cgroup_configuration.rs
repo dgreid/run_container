@@ -1,5 +1,4 @@
 extern crate libc;
-extern crate nix;
 
 use std::collections::BTreeSet;
 
@@ -129,20 +128,26 @@ impl CpuSetCGroupConfiguration {
 
 impl CGroupConfiguration for CpuSetCGroupConfiguration {
     fn configure(&self, dir: &CGroupDirectory) -> Result<(), Error> {
-        dir.write_file("cpus",
-                        &self.cpus
-                             .iter()
-                             .map(|c| c.to_string())
-                             .collect::<Vec<String>>()
-                             .join(","))
-            .map_err(Error::ConfigureCgroupCpus)?;
-        dir.write_file("mems",
-                        &self.mems
-                             .iter()
-                             .map(|c| c.to_string())
-                             .collect::<Vec<String>>()
-                             .join(","))
-            .map_err(Error::ConfigureCgroupMems)?;
+        dir.write_file(
+            "cpus",
+            &self
+                .cpus
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<String>>()
+                .join(","),
+        )
+        .map_err(Error::ConfigureCgroupCpus)?;
+        dir.write_file(
+            "mems",
+            &self
+                .mems
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<String>>()
+                .join(","),
+        )
+        .map_err(Error::ConfigureCgroupMems)?;
         Ok(())
     }
 
@@ -162,14 +167,15 @@ struct CGroupDeviceConfig {
 }
 
 impl CGroupDeviceConfig {
-    pub fn new(major: Option<u32>,
-               minor: Option<u32>,
-               allow: bool,
-               read: bool,
-               write: bool,
-               modify: bool,
-               dev_type: char)
-               -> Result<CGroupDeviceConfig, Error> {
+    pub fn new(
+        major: Option<u32>,
+        minor: Option<u32>,
+        allow: bool,
+        read: bool,
+        write: bool,
+        modify: bool,
+        dev_type: char,
+    ) -> Result<CGroupDeviceConfig, Error> {
         match dev_type {
             'a' | 'b' | 'c' => Ok(()),
             _ => Err(Error::InvalidDeviceType),
@@ -181,14 +187,14 @@ impl CGroupDeviceConfig {
         }
 
         Ok(CGroupDeviceConfig {
-               major: major,
-               minor: minor,
-               allow: allow,
-               read: read,
-               write: write,
-               modify: modify,
-               dev_type: dev_type,
-           })
+            major: major,
+            minor: minor,
+            allow: allow,
+            read: read,
+            write: write,
+            modify: modify,
+            dev_type: dev_type,
+        })
     }
 
     pub fn access_string(&self) -> String {
@@ -202,11 +208,13 @@ impl CGroupDeviceConfig {
         if self.modify {
             perms.push('m');
         }
-        format!("{} {}:{} {}",
-                self.dev_type,
-                self.major.map_or("*".to_string(), |m| m.to_string()),
-                self.minor.map_or("*".to_string(), |m| m.to_string()),
-                perms)
+        format!(
+            "{} {}:{} {}",
+            self.dev_type,
+            self.major.map_or("*".to_string(), |m| m.to_string()),
+            self.minor.map_or("*".to_string(), |m| m.to_string()),
+            perms
+        )
     }
 }
 
@@ -227,17 +235,19 @@ impl DevicesCGroupConfiguration {
         self.default_allow = allow;
     }
 
-    pub fn add_device(&mut self,
-                      major: Option<u32>,
-                      minor: Option<u32>,
-                      allow: bool,
-                      read: bool,
-                      write: bool,
-                      modify: bool,
-                      dev_type: char)
-                      -> Result<(), Error> {
-        self.devices
-            .push(CGroupDeviceConfig::new(major, minor, allow, read, write, modify, dev_type)?);
+    pub fn add_device(
+        &mut self,
+        major: Option<u32>,
+        minor: Option<u32>,
+        allow: bool,
+        read: bool,
+        write: bool,
+        modify: bool,
+        dev_type: char,
+    ) -> Result<(), Error> {
+        self.devices.push(CGroupDeviceConfig::new(
+            major, minor, allow, read, write, modify, dev_type,
+        )?);
 
         Ok(())
     }
@@ -253,14 +263,17 @@ impl DevicesCGroupConfiguration {
 impl CGroupConfiguration for DevicesCGroupConfiguration {
     fn configure(&self, dir: &CGroupDirectory) -> Result<(), Error> {
         // Only root can do device cgroup setup.
-	unsafe {  // Getting uid is safe, it only returns an int and doesn't touch memory.
-	    if libc::getuid() != 0 {
+        unsafe {
+            // Getting uid is safe, it only returns an int and doesn't touch memory.
+            if libc::getuid() != 0 {
                 return Ok(());
             }
         }
 
-        match dir.write_file(DevicesCGroupConfiguration::filename_for_access(self.default_allow),
-                             "a") {
+        match dir.write_file(
+            DevicesCGroupConfiguration::filename_for_access(self.default_allow),
+            "a",
+        ) {
             Err(_) => return Ok(()), // Permission denied is OK. TODO - better match
             _ => {}
         };

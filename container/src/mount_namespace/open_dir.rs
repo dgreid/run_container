@@ -2,7 +2,7 @@ extern crate nix;
 
 use syscall_defines::linux::LinuxSyscall::*;
 
-use self::nix::fcntl::*;
+use libc::{O_CLOEXEC, O_DIRECTORY, O_RDONLY};
 use std::path::Path;
 
 pub struct OpenDir {
@@ -10,21 +10,25 @@ pub struct OpenDir {
 }
 
 impl OpenDir {
-    pub fn new(path: &Path) -> Result<OpenDir, nix::Error> {
-        let d = OpenDir {
-            fd: try!(nix::fcntl::open(path,
-                                      O_DIRECTORY | O_RDONLY | O_CLOEXEC,
-                                      nix::sys::stat::Mode::empty())),
-        };
-        Ok(d)
+    pub fn new(path: &Path) -> Result<OpenDir, libc::c_long> {
+        unsafe {
+            let fd = match libc::open(
+                path.to_string_lossy().as_ptr() as *const _,
+                O_DIRECTORY | O_RDONLY | O_CLOEXEC,
+                0,
+            ) {
+                e if e < 0 => return Err(e.into()),
+                fd => fd,
+            };
+            Ok(OpenDir { fd })
+        }
     }
 
-    pub fn chdir(&self) -> Result<(), nix::Error> {
+    pub fn chdir(&self) -> Result<(), libc::c_long> {
         unsafe {
-            if nix::sys::syscall::syscall(SYS_fchdir as i64, self.fd) < 0 {
-                Err(nix::Error::Sys(nix::Errno::UnknownErrno))
-            } else {
-                Ok(())
+            match libc::syscall(SYS_fchdir as i64, self.fd) {
+                e if e <= 0 => Err(e),
+                _ => Ok(()),
             }
         }
     }
