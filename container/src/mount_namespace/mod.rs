@@ -209,7 +209,7 @@ mod test {
 
     fn wait_child_exit(pid: nix::unistd::Pid) {
         loop {
-            match wait::waitpid(pid, Some(wait::__WALL)) {
+            match wait::waitpid(pid, Some(wait::WaitPidFlag::__WALL)) {
                 Ok(WaitStatus::Exited(..)) => break,
                 Ok(WaitStatus::Signaled(..)) => break,
                 Ok(WaitStatus::Stopped(..)) => (),
@@ -217,7 +217,6 @@ mod test {
                 Ok(WaitStatus::StillAlive) => (),
                 Ok(WaitStatus::PtraceEvent(..)) => (),
                 Ok(WaitStatus::PtraceSyscall(..)) => (),
-                Err(nix::Error::Sys(nix::Errno::EINTR)) => (), // Try again.
                 Err(_) => break,
             }
         }
