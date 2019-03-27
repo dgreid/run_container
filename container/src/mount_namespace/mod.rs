@@ -5,6 +5,7 @@ mod open_dir;
 use self::nix::mount::*;
 use self::open_dir::OpenDir;
 use std;
+use std::ffi::CString;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io;
@@ -18,9 +19,11 @@ pub enum Error {
     CreateTarget(io::Error),
     EnterMountNamespace(nix::Error),
     EnterPivotRoot(nix::Error),
+    InvalidFsType,
+    InvalidMountSource,
     InvalidRootPath,
     InvalidTargetPath,
-    MountCommand(nix::Error, PathBuf),
+    MountCommand(libc::c_int, Option<String>, PathBuf),
     PostSetupCallback,
     RemountPrivate(nix::Error),
 }
@@ -29,7 +32,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 struct ContainerMount {
     source: Option<PathBuf>,
     target: PathBuf,
-    fstype: Option<String>,
+    fstype: Option<CString>,
     flags: libc::c_ulong,
     options: Vec<String>,
 }
@@ -60,10 +63,14 @@ impl MountNamespace {
             return Err(Error::InvalidTargetPath);
         }
 
+        let fstype_c = match fstype {
+            Some(f) => Some(CString::new(f).map_err(|_| Error::InvalidFsType)?),
+            None => None,
+        };
         let new_mount = ContainerMount {
             source,
             target,
-            fstype,
+            fstype: fstype_c,
             flags,
             options,
         };
@@ -94,20 +101,35 @@ impl MountNamespace {
             let mut target = self.root.clone();
             target.push(m.target.as_path());
             self.prepare_mount_target(&m.source, &target)?;
+            let source = m
+                .source
+                .as_ref()
+                .map(|s| CString::new(s.to_string_lossy().to_string()).unwrap());
+            let options = CString::new(m.options.join(",")).unwrap();
+
             unsafe {
-                libc::mount(
-                    match m.source.as_ref() {
-                        Some(s) => s.to_string_lossy().as_ptr() as *const _,
-                        None => std::ptr::null_mut() as *const _,
-                    },
-                    target.as_path().to_string_lossy().as_ptr() as *const _,
+                let ret = libc::mount(
+                    source
+                        .as_ref()
+                        .map(|s| s.as_ptr())
+                        .unwrap_or(std::ptr::null_mut() as *const _),
+                    CString::new(target.to_string_lossy().to_string())
+                        .map_err(|_| Error::InvalidTargetPath)?
+                        .as_ptr() as *const _,
                     match m.fstype.as_ref() {
                         Some(s) => s.as_ptr() as *const _,
                         None => std::ptr::null_mut() as *const _,
                     },
                     m.flags as u64,
-                    m.options.join(",").as_ptr() as *const _,
-                ); // TODO handle mount errors
+                    options.as_ptr() as *const _,
+                );
+                if ret < 0 {
+                    return Err(Error::MountCommand(
+                        unsafe { *libc::__errno_location() },
+                        source.as_ref().map(|s| s.to_string_lossy().to_string()),
+                        target,
+                    ));
+                }
             }
         }
 
@@ -140,12 +162,14 @@ impl MountNamespace {
         let old_root = OpenDir::new(Path::new("/")).unwrap(); // TODO handle error
         let new_root = OpenDir::new(self.root.as_path()).unwrap(); // TODO handle error
 
+        let c_root = CString::new(self.root.to_string_lossy().to_string()).unwrap();
+
         // To ensure j->chrootdir is the root of a filesystem,
         // do a self bind mount.
         unsafe {
             libc::mount(
-                self.root.as_path().to_string_lossy().as_ptr() as *const _,
-                self.root.as_path().to_string_lossy().as_ptr() as *const _,
+                c_root.as_ptr(),
+                c_root.as_ptr(),
                 std::ptr::null_mut(),
                 MS_BIND | MS_REC,
                 std::ptr::null_mut(),
@@ -184,7 +208,7 @@ impl MountNamespace {
         unsafe {
             libc::mount(
                 std::ptr::null_mut(),
-                "/".as_ptr() as *const _,
+                CString::new("/").unwrap().as_ptr() as *const _,
                 std::ptr::null_mut(),
                 MS_REC | MS_PRIVATE,
                 std::ptr::null_mut(),
@@ -279,13 +303,13 @@ mod test {
                     .unwrap();
                 m.add_mount(
                     Some(file_source.clone()),
-                    PathBuf::from("/three"),
+                    PathBuf::from("three"),
                     None,
                     MS_BIND | MS_REC,
                     Vec::new(),
                 )
                 .unwrap();
-                assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
+                m.enter(|_| Ok(())).unwrap();
                 assert!(PathBuf::from("/one").is_dir());
                 assert!(PathBuf::from("/two").is_dir());
                 assert!(PathBuf::from("/three").is_file());
@@ -316,7 +340,7 @@ mod test {
                 let mut m = MountNamespace::new(root_path.to_path_buf());
                 m.add_mount(Some(source), target, fstype, MS_REC, options)
                     .unwrap();
-                assert_eq!(m.enter(|_| Ok(())).is_ok(), true);
+                m.enter(|_| Ok(())).unwrap();
                 assert!(PathBuf::from("/tmpfs").exists());
                 0
             }),

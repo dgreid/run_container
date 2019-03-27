@@ -10,6 +10,7 @@ pub use devices::device::DeviceType;
 use self::tempdir::TempDir;
 use libc::{MS_BIND, MS_NOSUID, MS_REC};
 
+use std::ffi::CString;
 use std::io;
 use std::path::Path;
 
@@ -18,9 +19,10 @@ pub enum Error {
     BindPathInvalid,
     BindMount(nix::Error),
     BindMountingDevice(device::Error),
+    CreateTmpFs(io::Error),
     DeviceCreation(device::Error),
     DeviceDirCreation,
-    CreateTmpFs(io::Error),
+    InvalidDevPath,
     MountTmpFs(nix::Error),
 }
 
@@ -72,11 +74,14 @@ impl DeviceConfig {
 
         let dev_dir = TempDir::new("container_dev").map_err(Error::CreateTmpFs)?;
 
+        // unwrap can't fail as the tempdir path is guaranteed to be a valid string.
+        let dev_dir_c = CString::new(dev_dir.path().to_string_lossy().to_string()).unwrap();
+        let tmpfs_c = CString::new("tmpfs").unwrap();
         unsafe {
             libc::mount(
                 std::ptr::null_mut(),
-                dev_dir.path().to_string_lossy().as_ptr() as *const _,
-                "tmpfs".as_ptr() as *const _,
+                dev_dir_c.as_ptr(),
+                tmpfs_c.as_ptr(),
                 MS_NOSUID | MS_REC,
                 std::ptr::null_mut(),
             ); // TODO - check error
@@ -112,11 +117,14 @@ impl DeviceConfig {
     }
 
     fn setup_in_namespace_mknod(&self, dev_path: &Path) -> Result<(), Error> {
+        let dev_path_c = CString::new(dev_path.to_string_lossy().to_string())
+            .map_err(|_| Error::InvalidDevPath)?;
         if let Some(ref dev_dir) = self.dev_dir {
+            let dev_dir_c = CString::new(dev_dir.path().to_string_lossy().to_string()).unwrap();
             unsafe {
                 libc::mount(
-                    dev_dir.path().to_string_lossy().as_ptr() as *const _,
-                    dev_path.to_string_lossy().as_ptr() as *const _,
+                    dev_dir_c.as_ptr(),
+                    dev_path_c.as_ptr(),
                     std::ptr::null_mut(),
                     MS_BIND | MS_REC,
                     std::ptr::null_mut(),
