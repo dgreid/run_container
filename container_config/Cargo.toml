@@ -6,7 +6,6 @@ authors = ["Dylan Reid <dgreid@chromium.org>"]
 [dependencies]
 caps = { path = "../caps" }
 container = { path = "../container" }
-nix = "*"
 libc = "*"
 serde = "*"
 serde_json = "*"
