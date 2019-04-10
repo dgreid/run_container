@@ -1,0 +1,14 @@
+[package]
+name = "cgroup"
+version = "0.1.0"
+authors = ["Dylan Reid <dgreid@chromium.org>"]
+edition = "2018"
+
+[lib]
+path = "src/cgroup.rs"
+
+[dependencies]
+libc = "*"
+
+[dev-dependencies]
+tempdir = "*"

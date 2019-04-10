@@ -1,6 +1,8 @@
+mod cgroup_directory;
+
 use std::collections::BTreeSet;
 
-use cgroup::cgroup_directory::{self, CGroupDirectory};
+use crate::cgroup_directory::CGroupDirectory;
 
 #[derive(Debug)]
 pub enum Error {
